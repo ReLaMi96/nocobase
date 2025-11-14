@@ -1,0 +1,32 @@
+{
+  "name": "@nocobase-dev/plugin-attachment-db",
+  "displayName": "n8n Webhook Storage",
+  "description": "NocoBase storage engine that integrates with n8n webhooks for file operations",
+  "version": "1.8.31",
+  "license": "AGPL-3.0",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@nocobase/client": "1.x",
+    "@nocobase/server": "1.x",
+    "@nocobase/test": "1.x",
+    "@nocobase/plugin-file-manager": "1.x"
+  },
+  "devDependencies": {
+    "@nocobase/plugin-file-manager": "1.x"
+  },
+  "keywords": [
+    "nocobase",
+    "storage",
+    "n8n",
+    "webhook",
+    "file-management"
+  ]
+}

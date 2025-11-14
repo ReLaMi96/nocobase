@@ -1,0 +1,8 @@
+{
+  "n8n Webhook Storage": "n8n Webhook 存储",
+  "Upload Webhook URL": "上传 Webhook URL",
+  "Download Webhook URL": "下载 Webhook URL",
+  "Delete Webhook URL": "删除 Webhook URL",
+  "Request Timeout (ms)": "请求超时 (毫秒)",
+  "Options": "选项"
+}
