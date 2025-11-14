@@ -1,0 +1,8 @@
+{
+  "n8n Webhook Storage": "n8n Webhook Storage",
+  "Upload Webhook URL": "Upload Webhook URL",
+  "Download Webhook URL": "Download Webhook URL",
+  "Delete Webhook URL": "Delete Webhook URL",
+  "Request Timeout (ms)": "Request Timeout (ms)",
+  "Options": "Options"
+}
