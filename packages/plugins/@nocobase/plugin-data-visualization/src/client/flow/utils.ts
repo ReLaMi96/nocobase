@@ -58,6 +58,10 @@ export const formatters = {
       value: 'DD',
     },
     {
+      label: lang('HH:mm'),
+      value: 'HH:mm',
+    },
+    {
       label: lang('YYYY-MM'),
       value: 'YYYY-MM',
     },
@@ -66,12 +70,26 @@ export const formatters = {
       value: 'YYYY-MM-DD',
     },
     {
-      label: lang('YYYY-MM-DD hh:mm'),
-      value: 'YYYY-MM-DD hh:mm',
+      label: lang('YYYY-MM-DD HH:mm'),
+      value: 'YYYY-MM-DD HH:mm',
     },
     {
-      label: lang('YYYY-MM-DD hh:mm:ss'),
-      value: 'YYYY-MM-DD hh:mm:ss',
+      label: lang('YYYY-MM-DD HH:mm:ss'),
+      value: 'YYYY-MM-DD HH:mm:ss',
+    },
+
+    // 英美格式
+    {
+      label: lang('MM/DD/YYYY'),
+      value: 'MM/DD/YYYY',
+    },
+    {
+      label: lang('MM/DD/YYYY HH:mm'),
+      value: 'MM/DD/YYYY HH:mm',
+    },
+    {
+      label: lang('MM/DD/YYYY HH:mm:ss'),
+      value: 'MM/DD/YYYY HH:mm:ss',
     },
   ],
   date: [
@@ -95,19 +113,23 @@ export const formatters = {
       label: lang('YYYY-MM-DD'),
       value: 'YYYY-MM-DD',
     },
+    {
+      label: lang('MM/DD/YYYY'),
+      value: 'MM/DD/YYYY',
+    },
   ],
   time: [
     {
-      label: lang('hh:mm:ss'),
-      value: 'hh:mm:ss',
+      label: lang('HH'),
+      value: 'HH',
     },
     {
-      label: lang('hh:mm'),
-      value: 'hh:mm',
+      label: lang('HH:mm'),
+      value: 'HH:mm',
     },
     {
-      label: lang('hh'),
-      value: 'hh',
+      label: lang('HH:mm:ss'),
+      value: 'HH:mm:ss',
     },
   ],
 };
@@ -132,3 +154,24 @@ export function appendColon(label: string, lang?: string): string {
   const colon = isZh ? '：' : ':';
   return `${noColon}${colon}`;
 }
+
+// 调试日志开关：支持 URL 参数 ?_debug=true 或 localStorage('nocobase.debug')
+export const isDebugEnabled = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search || '');
+    const q = params.get('_debug');
+    if (q === 'true' || q === '1') return true;
+    const ls = window.localStorage?.getItem('nocobase.debug');
+    if (ls === 'true' || ls === '1') return true;
+  } catch {
+    // ignore
+  }
+  return false;
+};
+
+// 统一调试日志入口，仅在开启调试时输出
+export const debugLog = (...args: any[]) => {
+  if (!isDebugEnabled()) return;
+  console.log(...args);
+};

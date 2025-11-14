@@ -9,7 +9,14 @@
 
 import { useCallback, useState } from 'react';
 import { parseErrorLineColumn } from '../errorHelpers';
-import { FlowModelContext, JSRunner, createSafeWindow, createSafeDocument } from '@nocobase/flow-engine';
+import {
+  FlowModelContext,
+  JSRunner,
+  createSafeWindow,
+  createSafeDocument,
+  createSafeNavigator,
+  compileRunJs,
+} from '@nocobase/flow-engine';
 
 export type RunLog = { level: 'log' | 'info' | 'warn' | 'error'; msg: string; line?: number; column?: number };
 
@@ -66,15 +73,16 @@ export function useCodeRunner(hostCtx: FlowModelContext, version = 'v1') {
         const preferFlowKeys = ['jsSettings', 'clickSettings'] as const;
         const availableKey = preferFlowKeys.find((k) => (runtimeModel as any)?.getFlow?.(k));
         const flowKey = availableKey || 'jsSettings';
+        const compiledForPreview = await compileRunJs(code);
 
-        // 将预览中的代码写入对应 flow 的 stepParams，确保 handler 能拿到最新代码
-        runtimeModel.setStepParams?.(flowKey, 'runJs', { code, version });
+        // 将预览中的（已编译）代码写入对应 flow 的 stepParams，确保 handler 能拿到最新代码
+        runtimeModel.setStepParams?.(flowKey, 'runJs', { code: compiledForPreview, version });
 
         // Monkey-patch JSRunner.run to inject captureConsole into globals for all runjs calls during preview
         type JSRunnerPrototype = { run: JSRunner['run'] };
         const proto = JSRunner.prototype as unknown as JSRunnerPrototype;
         const originalRun = proto.run;
-        let firstResolved = false;
+        let lastResult: Awaited<ReturnType<JSRunner['run']>> | undefined;
         let resolveDeferred: (res: any) => void = () => {};
         const deferred = new Promise<any>((resolve) => (resolveDeferred = resolve));
         proto.run = async function patchedRun(this: any, jsCode: string) {
@@ -87,14 +95,7 @@ export function useCodeRunner(hostCtx: FlowModelContext, version = 'v1') {
           }
           try {
             const res = await originalRun.call(this, jsCode);
-            if (!firstResolved) {
-              firstResolved = true;
-              try {
-                resolveDeferred(res);
-              } catch (e) {
-                console.warn('[useCodeRunner] resolve deferred failed:', e);
-              }
-            }
+            lastResult = res;
             return res;
           } finally {
             try {
@@ -115,32 +116,52 @@ export function useCodeRunner(hostCtx: FlowModelContext, version = 'v1') {
           const eventName = typeof onDef === 'string' ? onDef : onDef?.eventName;
           if (!flow) {
             // 无可用流程（典型场景：联动规则里的 RunJS 预览），直接在当前上下文执行代码
-            await hostCtx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+            const navigator = createSafeNavigator();
+            await hostCtx.runjs(
+              compiledForPreview,
+              { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+              { version },
+            );
           } else if (typeof eventName === 'string') {
-            await m.dispatchEvent(eventName, { preview: { code, version } }, { sequential: true, useCache: false });
+            await m.dispatchEvent(
+              eventName,
+              { preview: { code: compiledForPreview, version } },
+              { sequential: true, useCache: false },
+            );
           } else if (isManual) {
-            await m.applyFlow(flowKey, { preview: { code, version } });
+            await m.applyFlow(flowKey, { preview: { code: compiledForPreview, version } });
           } else {
             await m.dispatchEvent(
               'beforeRender',
-              { preview: { code, version } },
+              { preview: { code: compiledForPreview, version } },
               { sequential: true, useCache: false },
             );
           }
         };
 
-        await runOnModel(runtimeModel);
-        const timeoutMs = 12000;
-        const runResult = await Promise.race([
-          deferred,
-          new Promise((resolve) =>
-            setTimeout(
-              () => resolve({ success: false, timeout: true, error: new Error('Preview timed out') }),
-              timeoutMs,
+        let runResult: Awaited<ReturnType<JSRunner['run']>> | undefined;
+        try {
+          await runOnModel(runtimeModel);
+          // After model finished dispatching, resolve with the last observed result
+          try {
+            resolveDeferred(lastResult ?? { success: true, value: undefined });
+          } catch (e) {
+            console.warn('[useCodeRunner] resolve deferred (post-run) failed:', e);
+          }
+          const timeoutMs = 12000;
+          runResult = (await Promise.race([
+            deferred,
+            new Promise((resolve) =>
+              setTimeout(
+                () => resolve({ success: false, timeout: true, error: new Error('Preview timed out') }),
+                timeoutMs,
+              ),
             ),
-          ),
-        ]);
-        (JSRunner.prototype as unknown as JSRunnerPrototype).run = originalRun;
+          ])) as Awaited<ReturnType<JSRunner['run']>>;
+        } finally {
+          // Always restore original prototype method, even if dispatch throws
+          (JSRunner.prototype as unknown as JSRunnerPrototype).run = originalRun;
+        }
         if (!runResult?.success) {
           const errText = runResult?.timeout ? 'Execution timed out' : String(runResult?.error || 'Unknown error');
           const pos = parseErrorLineColumn(runResult?.error);

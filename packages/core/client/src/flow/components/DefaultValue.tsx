@@ -23,6 +23,7 @@ import {
   useFlowContext,
   extractPropertyPath,
   FlowModel,
+  EditableItemModel,
 } from '@nocobase/flow-engine';
 import { get as lodashGet, set as lodashSet, isEqual } from 'lodash';
 import React, { useMemo } from 'react';
@@ -76,6 +77,12 @@ function createTempFieldClass(Base: any) {
         typeof originalProps.multiple !== 'undefined' ? originalProps.multiple : inferMultipleFromCollectionField();
       if (typeof multiple !== 'undefined') {
         this.setProps({ multiple });
+      }
+
+      // multipleSelect 接口的字段需要显式开启 antd Select 的多选模式
+      // 仅当未显式传入 mode 时设置，避免覆盖外部自定义
+      if (collectionField?.interface === 'multipleSelect' && typeof (this.props as any)?.mode === 'undefined') {
+        this.setProps({ mode: 'multiple' });
       }
 
       // 为本地枚举型字段补全可选项（仅在未显式传入 options 时处理）
@@ -256,10 +263,26 @@ export const DefaultValue = connect((props: Props) => {
   // Build a temporary field model (isolated), using collectionField's recommended editable subclass
   const tempRoot = useMemo(() => {
     const host = model;
-    const origin = host?.subModels?.field;
+    const origin = host?.customFieldModelInstance || host?.subModels?.field;
     const init = host?.getStepParams?.('fieldSettings', 'init') || origin?.getStepParams?.('fieldSettings', 'init');
-    // 如果是关系的对多字段，统一使用 RecordSelectFieldModel 作为默认值渲染模型
-    const collectionField = origin?.collectionField;
+    // 解析 collectionField（优先使用原字段上的引用；必要时从 dataSourceManager 回落）
+    let collectionField = origin?.collectionField as any;
+    if (!collectionField && init?.dataSourceKey && init?.collectionName && init?.fieldPath) {
+      const key = `${init.dataSourceKey}.${init.collectionName}.${init.fieldPath}`;
+      collectionField = model?.context?.dataSourceManager?.getCollectionField?.(key);
+    }
+    // 再次回退：直接使用宿主上下文上的 collectionField（在很多配置面板场景可用）
+    if (!collectionField) {
+      collectionField = (host as any)?.context?.collectionField;
+    }
+    // 如果 origin 是一个具体的字段子模型（例如筛选表单中的日期动态组件），优先沿用该模型的类，
+    // 这样“默认值”编辑器就能与真实字段保持一致（避免总是退化为普通可编辑模型）。
+    const PreferredClassFromOrigin = (origin as any)?.constructor as any;
+    // 兜底：从可编辑绑定获取类，用于常规表单字段
+    const editableBinding = collectionField
+      ? EditableItemModel.getDefaultBindingByField(model?.context as any, collectionField)
+      : null;
+    // 如果是关系的对多字段，或绑定缺失，采用兜底策略
     const relationType = collectionField?.type;
     const relationInterface = collectionField?.interface;
     const isToManyRelation =
@@ -269,9 +292,19 @@ export const DefaultValue = connect((props: Props) => {
       relationInterface === 'm2m' ||
       relationInterface === 'o2m' ||
       relationInterface === 'mbm';
-    // 优先用原字段模型；无法解析时回退到 InputFieldModel，避免误用区块模型（会依赖 dataSource/collection）
-    const fieldModelClass = isToManyRelation ? RecordSelectFieldModel : origin?.constructor || InputFieldModel;
-    const TempFieldClass = createTempFieldClass(fieldModelClass);
+
+    const FallbackClass = isToManyRelation ? RecordSelectFieldModel : InputFieldModel;
+    const BoundClass = editableBinding
+      ? (model?.context?.engine?.getModelClass?.(editableBinding.modelName) as any)
+      : null;
+    // 当来源是筛选字段（类名以 FilterFieldModel 结尾）时优先采用来源类，否则采用可编辑绑定类
+    const originIsFilterField =
+      typeof (PreferredClassFromOrigin as any)?.name === 'string' &&
+      /FilterFieldModel$/.test((PreferredClassFromOrigin as any).name);
+    const BaseClass = originIsFilterField
+      ? PreferredClassFromOrigin
+      : BoundClass || (typeof PreferredClassFromOrigin === 'function' && PreferredClassFromOrigin) || FallbackClass;
+    const TempFieldClass = createTempFieldClass(BaseClass);
     const fieldSub = {
       use: TempFieldClass,
       uid: uid(),
@@ -279,7 +312,7 @@ export const DefaultValue = connect((props: Props) => {
       subKey: null,
       subType: null,
       stepParams: init ? { fieldSettings: { init } } : undefined,
-      props: { disabled: false },
+      props: { disabled: false, allowClear: true, ...host?.customFieldProps },
     };
     const created = model.context.engine.createModel({
       use: 'VariableFieldFormModel',
@@ -311,10 +344,45 @@ export const DefaultValue = connect((props: Props) => {
   const InputComponent = useMemo(() => {
     const ConstantValueEditor = (inputProps) => {
       const initializedRef = React.useRef(false);
+      const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
+      const lastParentValueRef = React.useRef<any>(Symbol('init'));
+      const lastAppliedValueRef = React.useRef<any>(Symbol('none'));
+      const composingRef = React.useRef(false);
       React.useEffect(() => {
         const fieldModel = tempRoot?.subModels?.fields?.[0];
         if (!fieldModel) return;
         const { disabled, readOnly, readPretty, pattern, ...rest } = inputProps || {};
+        // 关联字段的选择值需要传入记录对象而不是 antd Option
+        const isAssociation = !!fieldModel?.context?.collectionField?.isAssociationField?.();
+        // 利用类型守卫避免不必要的 any
+        const hasData = (val: unknown): val is { data: unknown } =>
+          !!val && typeof val === 'object' && 'data' in (val as Record<string, unknown>);
+        const toRecordValue = (v: unknown) => {
+          if (Array.isArray(v)) return v.map((i) => (hasData(i) ? i.data : i));
+          return hasData(v) ? v.data : v;
+        };
+        // 文本类：
+        // - 以模型类型判断（_originalModel.use === 'InputFieldModel' 或当前 use 名称）
+        // - 以接口判断的回退（兼容 email/phone/url/uuid/nanoid/textarea/markdown/richText/password/color 等都走文本输入）
+        const originalUseName = (fieldModel as any)?._originalModel?.use || (fieldModel as any)?.use;
+        const iface = (fieldModel as any)?.context?.collectionField?.interface as string | undefined;
+        const textIfaceSet = new Set([
+          'input',
+          'email',
+          'phone',
+          'uuid',
+          'url',
+          'nanoid',
+          'textarea',
+          'markdown',
+          // richText 在本组件中按受控组件处理，避免编辑时被“非受控”策略干扰
+          'password',
+          'color',
+        ]);
+        const isTextLike =
+          originalUseName === 'InputFieldModel' ||
+          (iface ? textIfaceSet.has(iface) : fieldModel instanceof InputFieldModel);
+        const pickPrimitive = (n: any) => (n && typeof n === 'object' && 'target' in n ? n?.target?.value : n);
         // 将 VariableInput 提供的受控属性透传到临时字段模型上，确保受控生效
         // - value: 由 VariableInput 控制
         // - onChange: 回传给 VariableInput，从而驱动 Formily/外层表单值
@@ -322,25 +390,71 @@ export const DefaultValue = connect((props: Props) => {
         // - 其他样式/属性: 透传但不覆盖我们的可编辑设定
         fieldModel.setProps({
           disabled: false,
-          // 仅透传事件，避免把输入框变为完全受控，从而影响输入法
-          onChange: rest?.onChange ?? inputProps?.onChange,
-          onCompositionStart: rest?.onCompositionStart ?? inputProps?.onCompositionStart,
+          // 透传 change：
+          // - 优先取第一个参数（兼容 Input/Select 等）；
+          // - 对于 antd DatePicker/RangePicker 这类 (date, dateString) 的情况，若第二个参数为字符串或字符串数组，优先取第二个参数。
+          onChange: (...args: any[]) => {
+            const preferSecond =
+              args.length > 1 &&
+              (typeof args[1] === 'string' || (Array.isArray(args[1]) && args[1].every((i) => typeof i === 'string')));
+            const next = preferSecond ? args[1] : args[0];
+            const out = isAssociation ? toRecordValue(next) : pickPrimitive(next);
+            // 即时镜像到临时字段，保证受控组件（日期/选择等）在当前弹窗内也能立刻显示选择结果
+            if (!isTextLike) {
+              const applied = isAssociation ? toRecordValue(next) : pickPrimitive(next);
+              lastAppliedValueRef.current = applied;
+              fieldModel.setProps({ value: applied, defaultValue: undefined });
+            }
+            // 文本类在合成输入期间不抛出 onChange，待 compositionEnd 再一次性抛出
+            if (isTextLike && composingRef.current) return;
+            (rest?.onChange ?? inputProps?.onChange)?.(out);
+            // 触发本地重渲，确保 FlowModelRenderer 重新执行 model.render()
+            forceUpdate();
+          },
+          onCompositionStart: (...args: any[]) => {
+            composingRef.current = true;
+            rest?.onCompositionStart?.(...args);
+            inputProps?.onCompositionStart?.(...args);
+          },
           onCompositionUpdate: rest?.onCompositionUpdate ?? inputProps?.onCompositionUpdate,
-          onCompositionEnd: rest?.onCompositionEnd ?? inputProps?.onCompositionEnd,
+          onCompositionEnd: (e: any) => {
+            composingRef.current = false;
+            const v = pickPrimitive(e);
+            // 合成结束时再抛出一次变化，保证中文输入等场景
+            (rest?.onChange ?? inputProps?.onChange)?.(v);
+            rest?.onCompositionEnd?.(e);
+            inputProps?.onCompositionEnd?.(e);
+          },
           style: { width: '100%', minWidth: 0, ...(rest?.style || inputProps?.style) },
         });
         // 始终保持可编辑
         fieldModel.setPattern?.('editable');
 
-        // 首次挂载时，将当前值作为默认显示值，确保重新打开能回显上次保存的常量
+        // 首次挂载时，使用 DefaultValue 外层传入的 value 作为默认显示值
         if (!initializedRef.current) {
           initializedRef.current = true;
-          const initial = (rest?.value ?? inputProps?.value) as any;
+          const initial = value;
           if (typeof initial !== 'undefined') {
             fieldModel.setProps({ defaultValue: initial });
           }
         }
-      }, [inputProps]);
+        // 非文本类统一受控；文本类不受控（仅初始化 defaultValue）。
+        // 仅当外层 value 实际变化时才镜像到临时字段，避免覆盖用户在本弹窗中的即时选择。
+        if (!isTextLike) {
+          const parentVal = value;
+          const changedFromParent = parentVal !== lastParentValueRef.current;
+          if (changedFromParent) {
+            lastParentValueRef.current = parentVal;
+            if (typeof parentVal !== 'undefined') {
+              const applied = isAssociation ? toRecordValue(parentVal) : pickPrimitive(parentVal);
+              lastAppliedValueRef.current = applied;
+              fieldModel.setProps({ value: applied });
+              // 由外层驱动时也重渲，确保 UI 同步
+              forceUpdate();
+            }
+          }
+        }
+      }, [inputProps, value]);
       return (
         <div style={{ flexGrow: 1 }}>
           <FlowModelRenderer model={tempRoot} showFlowSettings={false} />

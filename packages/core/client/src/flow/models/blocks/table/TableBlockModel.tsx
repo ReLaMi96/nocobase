@@ -13,26 +13,32 @@ import { css } from '@emotion/css';
 import { observer } from '@formily/reactive-react';
 import {
   AddSubModelButton,
+  autorun,
   createCurrentRecordMetaFactory,
   DndProvider,
   DragHandler,
   Droppable,
-  escapeT,
+  tExpr,
   FlowModelRenderer,
   FlowSettingsButton,
   ForkFlowModel,
   MultiRecordResource,
   observable,
+  useFlowContext,
   useFlowEngine,
 } from '@nocobase/flow-engine';
-import { Space, Table } from 'antd';
+import { Skeleton, Space, Table } from 'antd';
 import classNames from 'classnames';
 import _ from 'lodash';
-import React, { useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ActionModel, BlockSceneEnum, CollectionBlockModel } from '../../base';
 import { QuickEditFormModel } from '../form/QuickEditFormModel';
 import { TableColumnModel } from './TableColumnModel';
 import { extractIndex, adjustColumnOrder } from './utils';
+import { commonConditionHandler, ConditionBuilder } from '../../../components/ConditionBuilder';
+import { HighPerformanceSpin } from '../../../../schema-component/common/high-performance-spin/HighPerformanceSpin';
+
+const MemoizedTable = React.memo(Table);
 
 type TableBlockModelStructure = {
   subModels: {
@@ -89,6 +95,16 @@ const rowSelectCheckboxCheckedClassHover = css`
   transform: translateX(50%);
   &:not(.checked) {
     display: none;
+  }
+`;
+
+const highlightedRowClass = css`
+  & td {
+    background-color: #e6f7ff !important;
+  }
+
+  &:hover td {
+    background-color: #bae7ff !important;
   }
 `;
 const HeaderWrapperComponent = React.memo((props) => {
@@ -152,8 +168,43 @@ export class TableBlockModel extends CollectionBlockModel<TableBlockModelStructu
     return super.resource as MultiRecordResource;
   }
 
+  private readonly columns = observable.ref([]);
+  private disposeAutorun: () => void;
+
+  onMount() {
+    super.onMount();
+    // 只有当表格列发生变化时才重新计算 columns，防止表格出现不必要的重渲染
+    this.disposeAutorun = autorun(() => {
+      this.columns.value = this.getColumns();
+    });
+  }
+
+  onUnmount() {
+    super.onUnmount();
+    if (this.disposeAutorun) {
+      this.disposeAutorun();
+    }
+  }
+
   createResource(ctx, params) {
     return this.context.createResource(MultiRecordResource);
+  }
+
+  /**
+   * 高亮指定的行
+   * @param record - 要高亮的行记录
+   */
+  highlightRow(record: any) {
+    if (record) {
+      this.setProps('highlightedRowKey', record[this.collection.filterTargetKey]);
+    }
+  }
+
+  /**
+   * 取消行高亮
+   */
+  clearHighlight() {
+    this.setProps('highlightedRowKey', null);
   }
 
   getColumns() {
@@ -385,7 +436,10 @@ export class TableBlockModel extends CollectionBlockModel<TableBlockModelStructu
   }
 
   renderComponent() {
-    return (
+    const highlightedRowKey = this.props.highlightedRowKey;
+    return !this.columns.value.length ? (
+      <Skeleton paragraph={{ rows: 3 }} />
+    ) : (
       <>
         <DndProvider>
           <div
@@ -442,35 +496,17 @@ export class TableBlockModel extends CollectionBlockModel<TableBlockModelStructu
             </Space>
           </div>
         </DndProvider>
-        <Table
-          components={this.components}
-          tableLayout="fixed"
-          size={this.props.size}
-          rowKey={this.collection.filterTargetKey}
-          rowSelection={{
-            columnWidth: 50,
-            type: 'checkbox',
-            onChange: (_, selectedRows) => {
-              this.resource.setSelectedRows(selectedRows);
-            },
-            selectedRowKeys: this.resource.getSelectedRows().map((row) => row[this.collection.filterTargetKey]),
-            renderCell: this.renderCell,
-            ...this.rowSelectionProps,
-          }}
-          loading={this.resource.loading}
-          virtual={this.props.virtual}
-          scroll={{ x: 'max-content' }}
-          dataSource={this.resource.getData()}
-          columns={this.getColumns()}
-          pagination={this.pagination()}
-          onChange={(pagination) => {
-            console.log('onChange pagination:', pagination);
-            this.resource.loading = true;
-            this.resource.setPage(pagination.current);
-            this.resource.setPageSize(pagination.pageSize);
-            this.resource.refresh();
-          }}
-        />
+        <HighPerformanceSpin spinning={!!this.resource.loading}>
+          <HighPerformanceTable
+            model={this}
+            size={this.props.size}
+            virtual={this.props.virtual}
+            dataSource={this.resource.getData()}
+            columns={this.columns.value}
+            pagination={this.pagination()}
+            highlightedRowKey={highlightedRowKey}
+          />
+        </HighPerformanceSpin>
       </>
     );
   }
@@ -484,10 +520,10 @@ TableBlockModel.registerFlow({
 TableBlockModel.registerFlow({
   key: 'tableSettings',
   sort: 500,
-  title: escapeT('Table settings'),
+  title: tExpr('Table settings'),
   steps: {
     showRowNumbers: {
-      title: escapeT('Show row numbers'),
+      title: tExpr('Show row numbers'),
       uiSchema: {
         showIndex: {
           'x-component': 'Switch',
@@ -502,7 +538,7 @@ TableBlockModel.registerFlow({
       },
     },
     quickEdit: {
-      title: escapeT('Enable quick edit'),
+      title: tExpr('Enable quick edit'),
       uiSchema: {
         editable: {
           'x-component': 'Switch',
@@ -517,7 +553,7 @@ TableBlockModel.registerFlow({
       },
     },
     pageSize: {
-      title: escapeT('Page size'),
+      title: tExpr('Page size'),
       uiSchema: {
         pageSize: {
           'x-component': 'Select',
@@ -543,26 +579,26 @@ TableBlockModel.registerFlow({
     },
     dataScope: {
       use: 'dataScope',
-      title: escapeT('Data scope'),
+      title: tExpr('Data scope'),
     },
     defaultSorting: {
       use: 'sortingRule',
-      title: escapeT('Default sorting'),
+      title: tExpr('Default sorting'),
     },
     // dataLoadingMode: {
     //   use: 'dataLoadingMode',
-    //   title: escapeT('Data loading mode'),
+    //   title: tExpr('Data loading mode'),
     // },
     tableDensity: {
-      title: escapeT('Table density'),
+      title: tExpr('Table density'),
       uiSchema: {
         size: {
           'x-component': 'Select',
           'x-decorator': 'FormItem',
           enum: [
-            { label: escapeT('Large'), value: 'large' },
-            { label: escapeT('Middle'), value: 'middle' },
-            { label: escapeT('Small'), value: 'small' },
+            { label: tExpr('Large'), value: 'large' },
+            { label: tExpr('Middle'), value: 'middle' },
+            { label: tExpr('Small'), value: 'small' },
           ],
         },
       },
@@ -574,7 +610,7 @@ TableBlockModel.registerFlow({
       },
     },
     // virtualScrolling: {
-    //   title: escapeT('Enable virtual scrolling'),
+    //   title: tExpr('Enable virtual scrolling'),
     //   uiSchema: {
     //     virtual: {
     //       'x-component': 'Switch',
@@ -589,7 +625,7 @@ TableBlockModel.registerFlow({
     //   },
     // },
     refreshData: {
-      title: escapeT('Refresh data'),
+      title: tExpr('Refresh data'),
       async handler(ctx, params) {
         await Promise.all(
           ctx.model.mapSubModels('columns', async (column) => {
@@ -608,10 +644,10 @@ TableBlockModel.registerFlow({
 });
 
 TableBlockModel.define({
-  label: escapeT('Table'),
-  group: escapeT('Content'),
+  label: tExpr('Table'),
+  group: tExpr('Content'),
   searchable: true,
-  searchPlaceholder: escapeT('Search'),
+  searchPlaceholder: tExpr('Search'),
   createModelOptions: {
     use: 'TableBlockModel',
     subModels: {
@@ -624,3 +660,144 @@ TableBlockModel.define({
   },
   sort: 300,
 });
+
+const tableScroll = { x: 'max-content' };
+const HighPerformanceTable = React.memo(
+  (props: {
+    model: TableBlockModel;
+    size: any;
+    virtual: boolean;
+    dataSource: any;
+    columns: any;
+    pagination: any;
+    highlightedRowKey: string;
+  }) => {
+    const { model, size, virtual, dataSource, columns, pagination: _pagination, highlightedRowKey } = props;
+    const [selectedRowKeys, setSelectedRowKeys] = React.useState<string[]>(() =>
+      model.resource.getSelectedRows().map((row) => row[model.collection.filterTargetKey]),
+    );
+    const rowSelection = useMemo(() => {
+      return {
+        columnWidth: 50,
+        type: 'checkbox',
+        onChange: (_, selectedRows) => {
+          model.resource.setSelectedRows(selectedRows);
+          setSelectedRowKeys(selectedRows.map((row) => row[model.collection.filterTargetKey]));
+        },
+        selectedRowKeys,
+        renderCell: model.renderCell,
+        ...model.rowSelectionProps,
+      };
+    }, [model, selectedRowKeys]);
+    const handleChange = useCallback(
+      (pagination) => {
+        if (model.resource.getPageSize() !== pagination.pageSize) {
+          model.resource.setPage(1);
+        } else {
+          model.resource.setPage(pagination.current);
+        }
+        model.resource.loading = true;
+        model.resource.setPageSize(pagination.pageSize);
+        model.resource.refresh();
+      },
+      [model],
+    );
+    const rowClassName = useCallback(
+      (record) => {
+        return record[model.collection?.filterTargetKey] === highlightedRowKey ? highlightedRowClass : '';
+      },
+      [highlightedRowKey, model.collection?.filterTargetKey],
+    );
+    const pagination = useMemo(() => _pagination, [dataSource]);
+    const onRow = useCallback(
+      (record, rowIndex) => {
+        return {
+          onClick: async (event) => {
+            if (highlightedRowKey !== record[model.collection.filterTargetKey]) {
+              defineClickedRowRecordVariable(model, record);
+              await model.dispatchEvent('rowClick', { record, rowIndex, event });
+              removeClickedRowRecordVariable(model);
+            } else {
+              await model.dispatchEvent('rowClick', { record, rowIndex, event });
+            }
+          },
+        };
+      },
+      [highlightedRowKey, model],
+    );
+
+    return (
+      <MemoizedTable
+        components={model.components}
+        tableLayout="fixed"
+        size={size}
+        rowKey={model.collection.filterTargetKey}
+        rowSelection={rowSelection as any}
+        virtual={virtual}
+        scroll={tableScroll}
+        dataSource={dataSource}
+        columns={columns}
+        pagination={pagination}
+        onChange={handleChange}
+        rowClassName={rowClassName}
+        onRow={onRow}
+        className={css`
+          .ant-table-cell-ellipsis.ant-table-cell-fix-right-first .ant-table-cell-content {
+            display: inline;
+          }
+        `}
+      />
+    );
+  },
+);
+
+HighPerformanceTable.displayName = 'HighPerformanceTable';
+
+TableBlockModel.registerEvents({
+  rowClick: {
+    title: tExpr('Row click'),
+    name: 'rowClick',
+    uiSchema: {
+      condition: {
+        type: 'object',
+        title: tExpr('Trigger condition'),
+        'x-decorator': 'FormItem',
+        'x-component': (props) => {
+          // eslint-disable-next-line react-hooks/rules-of-hooks
+          const ctx = useFlowContext();
+          // eslint-disable-next-line react-hooks/rules-of-hooks
+          useEffect(() => {
+            defineClickedRowRecordVariable(ctx.model, null);
+            return () => removeClickedRowRecordVariable(ctx.model);
+          }, [ctx.model]);
+
+          return <ConditionBuilder {...props} />;
+        },
+      },
+    },
+    async handler(ctx, params) {
+      commonConditionHandler(ctx, params);
+
+      const model = ctx.model as TableBlockModel;
+      if (model.props.highlightedRowKey !== ctx.inputArgs.record[model.collection.filterTargetKey]) {
+        model.highlightRow(ctx.inputArgs.record);
+      } else {
+        model.clearHighlight();
+      }
+    },
+  },
+});
+
+function defineClickedRowRecordVariable(model: TableBlockModel, value: any) {
+  const recordMeta = createCurrentRecordMetaFactory(model.context, () => model.collection, {
+    title: tExpr('Clicked row record'),
+  });
+  model.context.defineProperty('clickedRowRecord', {
+    get: () => value,
+    meta: recordMeta,
+  });
+}
+
+function removeClickedRowRecordVariable(model: TableBlockModel) {
+  model.context.defineProperty('clickedRowRecord', {});
+}

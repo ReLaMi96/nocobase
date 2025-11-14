@@ -393,8 +393,8 @@ export class Database extends EventEmitter implements AsyncEmitter {
    */
   initListener() {
     this.on('afterConnect', async (client) => {
-      if (this.inDialect('postgres')) {
-        await client.query('SET search_path = public');
+      if (this.isPostgresCompatibleDialect()) {
+        await client.query('SET search_path TO public');
       }
     });
 
@@ -565,11 +565,7 @@ export class Database extends EventEmitter implements AsyncEmitter {
   ): Collection<Attributes, CreateAttributes> {
     options = lodash.cloneDeep(options);
 
-    if (typeof options.underscored !== 'boolean') {
-      if (this.options.underscored) {
-        options.underscored = true;
-      }
-    }
+    options.underscored = options.underscored ?? this.options.underscored;
 
     this.logger.trace(`beforeDefineCollection: ${safeJsonStringify(options)}`, {
       databaseInstanceId: this.instanceId,
@@ -1065,18 +1061,31 @@ export class Database extends EventEmitter implements AsyncEmitter {
     return this.sequelize.getQueryInterface().quoteIdentifiers(tableName);
   }
 
+  private async runSQLWithSchema(finalSQL: string, bind: any, transaction?: any) {
+    if (!this.options.schema || !this.isPostgresCompatibleDialect()) {
+      return this.sequelize.query(finalSQL, { bind, transaction });
+    }
+
+    const execute = async (t: any) => {
+      await this.sequelize.query(`SET LOCAL search_path TO ${this.options.schema}`, { transaction: t });
+      return this.sequelize.query(finalSQL, { bind, transaction: t });
+    };
+
+    return transaction ? execute(transaction) : this.sequelize.transaction(execute);
+  }
+
   async runSQL(sql: string, options: RunSQLOptions = {}) {
     const { filter, bind, type, transaction } = options;
     let finalSQL = sql;
     if (!finalSQL.replace(/\s+/g, ' ').trim()) {
       throw new Error('SQL cannot be empty');
     }
+    const queryGenerator = this.sequelize.getQueryInterface().queryGenerator as any;
     if (filter) {
       let where = {};
       const tmpCollection = new Collection({ name: 'tmp', underscored: false }, { database: this });
       const r = tmpCollection.repository;
       where = r.buildQueryOptions({ filter }).where;
-      const queryGenerator = this.sequelize.getQueryInterface().queryGenerator as any;
       const wSQL = queryGenerator.getWhereConditions(where, null, null, { bindParam: true });
 
       if (wSQL) {
@@ -1089,7 +1098,7 @@ export class Database extends EventEmitter implements AsyncEmitter {
       }
     }
     this.logger.debug('runSQL', { finalSQL });
-    const result = await this.sequelize.query(finalSQL, { bind, transaction });
+    const result = await this.runSQLWithSchema(finalSQL, bind, transaction);
     let data: any = result[0];
     if (type === 'selectVar') {
       if (Array.isArray(data)) {

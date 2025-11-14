@@ -9,7 +9,13 @@
 
 import { CloseOutlined, PlusOutlined } from '@ant-design/icons';
 import { css } from '@emotion/css';
-import { escapeT, FlowModelRenderer, useFlowModel } from '@nocobase/flow-engine';
+import {
+  tExpr,
+  FlowModelRenderer,
+  useFlowModel,
+  createAssociationAwareObjectMetaFactory,
+  createAssociationSubpathResolver,
+} from '@nocobase/flow-engine';
 import { Button, Card, Divider, Form, Tooltip } from 'antd';
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +39,7 @@ export const ObjectNester = (props) => {
   const model: any = useFlowModel();
   const gridModel = model.subModels.grid;
   const rowIndex = model.context.fieldIndex;
+  const record = model.context.record;
   // 在数组子表单场景下，为每个子项创建行内 fork，并透传当前行索引
   const grid = React.useMemo(() => {
     if (rowIndex == null) return gridModel;
@@ -40,9 +47,13 @@ export const ObjectNester = (props) => {
     fork.context.defineProperty('fieldIndex', {
       get: () => rowIndex,
     });
+    fork.context.defineProperty('record', {
+      get: () => record,
+      cache: false,
+    });
 
     return fork;
-  }, [gridModel, rowIndex]);
+  }, [gridModel, rowIndex, record]);
   useEffect(() => {
     if (props.disabled !== grid.context.parentDisabled) {
       grid.mapSubModels('items', (item) => {
@@ -64,6 +75,33 @@ export class SubFormFieldModel extends FormAssociationFieldModel {
   updateAssociation = true;
   onInit(options) {
     super.onInit(options);
+    this.context.blockModel.emitter.on('formValuesChange', ({ changedValues, allValues }) => {
+      this.dispatchEvent('formValuesChange', { changedValues, allValues }, { debounce: true });
+    });
+
+    this.context.defineProperty('currentObject', {
+      get: () => {
+        return this.context.form.getFieldValue(this.props.name);
+      },
+      cache: false,
+      meta: createAssociationAwareObjectMetaFactory(
+        () => this.context.collection,
+        this.context.t('Current object'),
+        () => this.context.form.getFieldValue(this.props.name),
+      ),
+      resolveOnServer: createAssociationSubpathResolver(
+        () => this.context.collection,
+        () => this.context.form.getFieldValue(this.props.name),
+      ),
+      serverOnlyWhenContextParams: true,
+    });
+  }
+  onMount() {
+    super.onMount();
+    // 首次渲染触发一次事件流
+    setTimeout(() => {
+      this.applyFlow('eventSettings');
+    }, 100); // TODO：待修复。不延迟的话，会导致 disabled 的状态不生效
   }
   render() {
     return <ObjectNester {...this.props} />;
@@ -71,12 +109,27 @@ export class SubFormFieldModel extends FormAssociationFieldModel {
 }
 
 SubFormFieldModel.define({
-  label: escapeT('Sub-form'),
+  label: tExpr('Sub-form'),
   createModelOptions: {
     use: 'SubFormFieldModel',
     subModels: {
       grid: {
         use: 'FormGridModel',
+      },
+    },
+  },
+});
+
+SubFormFieldModel.registerFlow({
+  key: 'eventSettings',
+  title: tExpr('Event settings'),
+  on: 'formValuesChange',
+  steps: {
+    linkageRules: {
+      use: 'subFormFieldLinkageRules',
+      afterParamsSave(ctx) {
+        // 保存后，自动运行一次
+        ctx.model.applyFlow('eventSettings');
       },
     },
   },
@@ -109,21 +162,46 @@ const ArrayNester = ({ name, value, disabled }: any) => {
       <Form.List name={name}>
         {(fields, { add, remove }) => (
           <>
-            {fields.map(({ key, name: index }) => {
-              const uid = `${key}.${name}`;
+            {fields.map((field, index) => {
+              const { key, name: fieldName } = field;
+              const fieldIndex = [...rowIndex, `${collectionName}:${index}`];
               // 每行只创建一次 fork
-              if (!forksRef.current[uid]) {
-                const fork = gridModel.createFork();
-                fork.context.defineProperty('fieldIndex', {
-                  get: () => [...rowIndex, `${collectionName}:${index}`],
+              if (!forksRef.current[key]) {
+                const fork = gridModel.createFork({
+                  disabled: disabled,
                 });
-                forksRef.current[uid] = fork;
+                fork.gridContainerRef = React.createRef<HTMLDivElement>();
+                fork.context.defineProperty('fieldKey', {
+                  get: () => key,
+                });
+                forksRef.current[key] = fork;
               }
-              forksRef.current[uid].setProps({
-                disabled: disabled,
+
+              const currentFork = forksRef.current[key];
+              currentFork.context.defineProperty('fieldIndex', {
+                get: () => fieldIndex,
+                cache: false,
               });
+              currentFork.context.defineProperty('currentObject', {
+                get: () => {
+                  return currentFork.context.form.getFieldValue([name, fieldName]);
+                },
+                cache: false,
+                meta: createAssociationAwareObjectMetaFactory(
+                  () => currentFork.context.collection,
+                  currentFork.context.t('Current object'),
+                  () => currentFork.context.form.getFieldValue([name, fieldName]),
+                ),
+                resolveOnServer: createAssociationSubpathResolver(
+                  () => currentFork.context.collection,
+                  () => currentFork.context.form.getFieldValue([name, fieldName]),
+                ),
+                serverOnlyWhenContextParams: true,
+              });
+
               return (
-                <div key={uid} style={{ marginBottom: 12 }}>
+                // key 使用 index 是为了在移除前面行时，能重新渲染后面的行，以更新上下文中的值
+                <div key={index} style={{ marginBottom: 12 }}>
                   {!disabled && (
                     <div style={{ textAlign: 'right' }}>
                       <Tooltip title={t('Remove')}>
@@ -131,19 +209,28 @@ const ArrayNester = ({ name, value, disabled }: any) => {
                           style={{ zIndex: 1000, color: '#a8a3a3' }}
                           onClick={() => {
                             remove(index);
+                            const gridFork = forksRef.current[key];
+                            // 同时销毁子模型的 fork
+                            gridFork.mapSubModels('items', (item) => {
+                              const cacheKey = `${gridFork.context.fieldKey}:${item.uid}`;
+                              // 同时销毁子模型的 fork
+                              item.subModels.field?.getFork(`${gridFork.context.fieldKey}`)?.dispose(); // 使用模板字符串把数组展开
+                              item.getFork(cacheKey)?.dispose();
+                            });
+                            gridFork.dispose();
                             // 删除 fork 缓存
-                            delete forksRef.current[uid];
+                            delete forksRef.current[key];
                           }}
                         />
                       </Tooltip>
                     </div>
                   )}
-                  <FlowModelRenderer model={forksRef.current[uid]} showFlowSettings={false} />
+                  <FlowModelRenderer model={forksRef.current[key]} showFlowSettings={false} />
                   <Divider />
                 </div>
               );
             })}
-            <Button type="link" onClick={() => add()} disabled={disabled}>
+            <Button type="link" onClick={() => add({})} disabled={disabled}>
               <PlusOutlined />
               {t('Add new')}
             </Button>
@@ -158,6 +245,30 @@ export class SubFormListFieldModel extends FormAssociationFieldModel {
   updateAssociation = true;
   onInit(options) {
     super.onInit(options);
+    this.context.blockModel.emitter.on('formValuesChange', ({ changedValues, allValues }) => {
+      this.dispatchEvent('formValuesChange', { changedValues, allValues }, { debounce: true });
+    });
+
+    this.context.defineProperty('currentObject', {
+      value: null,
+      meta: createAssociationAwareObjectMetaFactory(
+        () => this.context.collection,
+        this.context.t('Current object'),
+        (ctx) => ctx['currentObject'],
+      ),
+      resolveOnServer: createAssociationSubpathResolver(
+        () => this.context.collection,
+        () => this.context['currentObject'],
+      ),
+      serverOnlyWhenContextParams: true,
+    });
+  }
+  onMount() {
+    super.onMount();
+    // 首次渲染触发一次事件流
+    setTimeout(() => {
+      this.applyFlow('eventSettings');
+    }, 100); // TODO：待修复。不延迟的话，会导致 disabled 的状态不生效
   }
   render() {
     return <ArrayNester {...this.props} />;
@@ -165,12 +276,27 @@ export class SubFormListFieldModel extends FormAssociationFieldModel {
 }
 
 SubFormListFieldModel.define({
-  label: escapeT('Sub-form'),
+  label: tExpr('Sub-form'),
   createModelOptions: {
     use: 'SubFormListFieldModel',
     subModels: {
       grid: {
         use: 'FormGridModel',
+      },
+    },
+  },
+});
+
+SubFormListFieldModel.registerFlow({
+  key: 'eventSettings',
+  title: tExpr('Event settings'),
+  on: 'formValuesChange',
+  steps: {
+    linkageRules: {
+      use: 'subFormFieldLinkageRules',
+      afterParamsSave(ctx) {
+        // 保存后，自动运行一次
+        ctx.model.applyFlow('eventSettings');
       },
     },
   },

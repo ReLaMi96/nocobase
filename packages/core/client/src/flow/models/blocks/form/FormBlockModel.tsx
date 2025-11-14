@@ -8,22 +8,22 @@
  */
 
 import { SettingOutlined } from '@ant-design/icons';
-import type { PropertyMetaFactory } from '@nocobase/flow-engine';
+import type { PropertyMeta, PropertyMetaFactory } from '@nocobase/flow-engine';
 import {
   AddSubModelButton,
-  createCurrentRecordMetaFactory,
-  createRecordMetaFactory,
-  escapeT,
+  tExpr,
   FlowSettingsButton,
+  createAssociationAwareObjectMetaFactory,
+  createAssociationSubpathResolver,
 } from '@nocobase/flow-engine';
 import { Form, FormInstance } from 'antd';
 import { omit } from 'lodash';
 import React from 'react';
+import { commonConditionHandler, ConditionBuilder } from '../../../components/ConditionBuilder';
 import { BlockGridModel } from '../../base/BlockGridModel';
 import { CollectionBlockModel } from '../../base/CollectionBlockModel';
 import { FormActionModel } from './FormActionModel';
 import { FormGridModel } from './FormGridModel';
-import { commonConditionHandler, ConditionBuilder } from '../../../components/ConditionBuilder';
 
 type DefaultCollectionBlockModelStructure = {
   parent?: BlockGridModel;
@@ -66,27 +66,77 @@ export class FormBlockModel<
     this.form.setFieldValue(fieldName, value);
   }
 
+  protected createFormValuesMetaFactory(): PropertyMetaFactory {
+    // 基于通用函数创建 MetaFactory（含 buildVariablesParams）
+    const baseFactory: PropertyMetaFactory = createAssociationAwareObjectMetaFactory(
+      () => this.collection,
+      this.translate('Current form'),
+      () => this.form?.getFieldsValue?.() || {},
+    );
+
+    // UI 优化：仅显示当前表单网格中已启用的顶层字段
+    const factory: PropertyMetaFactory = async () => {
+      const base = (await baseFactory()) as PropertyMeta | null;
+      if (!base) return null;
+
+      const getActiveTopLevelFieldNames = (): Set<string> => {
+        const items = this.subModels.grid?.subModels?.items ?? [];
+        const names = new Set<string>();
+        for (const it of items) {
+          const fp = it?.getStepParams?.('fieldSettings', 'init')?.fieldPath;
+          const top = fp?.toString().split('.')[0];
+          if (top) names.add(top);
+        }
+        return names;
+      };
+      const activeTopLevel = getActiveTopLevelFieldNames();
+
+      const propsResolved = typeof base.properties === 'function' ? await base.properties() : base.properties;
+      const filteredBase: PropertyMeta = { ...base };
+      if (propsResolved && activeTopLevel.size > 0) {
+        const filtered: Record<string, PropertyMeta> = {};
+        for (const k of Object.keys(propsResolved)) {
+          if (activeTopLevel.has(k)) filtered[k] = propsResolved[k];
+        }
+        filteredBase.properties = filtered;
+      } else {
+        filteredBase.properties = propsResolved;
+      }
+      return filteredBase;
+    };
+    factory.title = this.translate('Current form');
+    return factory;
+  }
+
   useHooksBeforeRender() {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const [form] = Form.useForm();
     this.context.defineProperty('form', { get: () => form });
-    const recordMeta: PropertyMetaFactory = createRecordMetaFactory(() => this.collection, 'Current form');
+    // 增强：为 formValues 提供基于“已选关联值”的服务端解析锚点
+    const formValuesMeta: PropertyMetaFactory = this.createFormValuesMetaFactory();
+
     this.context.defineProperty('formValues', {
       get: () => {
         return this.context.form.getFieldsValue();
       },
       cache: false,
-      meta: recordMeta,
+      meta: formValuesMeta,
+      resolveOnServer: createAssociationSubpathResolver(
+        () => this.collection,
+        () => this.form.getFieldsValue(),
+      ),
+      serverOnlyWhenContextParams: true,
     });
   }
 
   onInit(options) {
     super.onInit(options);
-
-    const recordMeta: PropertyMetaFactory = createCurrentRecordMetaFactory(this.context, () => this.collection);
     this.context.defineProperty('record', {
       get: () => this.getCurrentRecord(),
       cache: false,
+    });
+    this.context.resource.on('saved', () => {
+      this.dispatchEvent('formSubmitSuccess', {});
     });
   }
 
@@ -110,7 +160,7 @@ export class FormBlockModel<
 export function FormComponent({
   model,
   children,
-  layoutProps = {} as any,
+  layoutProps = {},
   initialValues,
   ...rest
 }: {
@@ -128,6 +178,7 @@ export function FormComponent({
       labelCol={{ style: { width: layoutProps?.labelWidth } }}
       onValuesChange={(changedValues, allValues) => {
         model.dispatchEvent('formValuesChange', { changedValues, allValues }, { debounce: true });
+        model.emitter.emit('formValuesChange', { changedValues, allValues });
       }}
       {...rest}
     >
@@ -142,18 +193,18 @@ FormBlockModel.define({
 
 FormBlockModel.registerFlow({
   key: 'formModelSettings',
-  title: escapeT('Form settings'),
+  title: tExpr('Form settings'),
   steps: {
     layout: {
       use: 'layout',
-      title: escapeT('Layout'),
+      title: tExpr('Layout'),
     },
   },
 });
 
 FormBlockModel.registerFlow({
   key: 'eventSettings',
-  title: escapeT('Event settings'),
+  title: tExpr('Event settings'),
   on: 'formValuesChange',
   steps: {
     linkageRules: {
@@ -168,12 +219,12 @@ FormBlockModel.registerFlow({
 
 FormBlockModel.registerEvents({
   formValuesChange: {
-    title: escapeT('Form values change'),
+    title: tExpr('Form values change'),
     name: 'formValuesChange',
     uiSchema: {
       condition: {
         type: 'object',
-        title: escapeT('Trigger condition'),
+        title: tExpr('Trigger condition'),
         'x-decorator': 'FormItem',
         'x-component': ConditionBuilder,
       },

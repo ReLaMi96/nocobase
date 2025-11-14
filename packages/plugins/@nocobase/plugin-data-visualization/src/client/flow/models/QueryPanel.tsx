@@ -15,10 +15,12 @@ import { useT } from '../../locale';
 import { BuildOutlined, ConsoleSqlOutlined, RightOutlined, DownOutlined, RightSquareOutlined } from '@ant-design/icons';
 import { QueryBuilder } from './QueryBuilder';
 import { ResultPanel } from './ResultPanel';
-import { ChartBlockModel } from './ChartBlockModel';
 import { useFlowSettingsContext } from '@nocobase/flow-engine';
 import { configStore } from './config-store';
 import { validateQuery } from './QueryBuilder.service';
+
+const defaultSQL = `SELECT * FROM my_table
+LIMIT 200;`;
 
 const QueryMode: React.FC = connect(({ value = 'builder', onChange, onClick }) => {
   const t = useT();
@@ -43,7 +45,7 @@ const QueryMode: React.FC = connect(({ value = 'builder', onChange, onClick }) =
 export const QueryPanel: React.FC = observer(() => {
   const t = useT();
   const form = useForm();
-  const ctx = useFlowSettingsContext<ChartBlockModel>();
+  const ctx = useFlowSettingsContext<any>();
   const mode = form?.values?.query?.mode || 'builder';
   const qbRef = React.useRef(null);
 
@@ -54,6 +56,12 @@ export const QueryPanel: React.FC = observer(() => {
     // 在 SQL 模式下，隐藏并取消校验 builder 模式相关字段，避免全表单 submit 时的必填校验
     const builderAddrs = ['collectionPath', 'measures', 'dimensions', 'filter', 'orders', 'limit', 'offset'];
     if (mode === 'sql') {
+      // 新增：SQL 模式默认模板（仅在当前为空时设置）
+      const currentSql = form?.values?.query?.sql;
+      if (!currentSql || !String(currentSql).trim()) {
+        form?.setValuesIn?.('query.sql', defaultSQL);
+      }
+
       builderAddrs.forEach((addr) => {
         form.setFieldState(`query.${addr}`, (state: any) => {
           state.display = 'none';
@@ -95,7 +103,6 @@ export const QueryPanel: React.FC = observer(() => {
 
   // 图形化模式
   const handleBuilderChange = async (next: any) => {
-    console.log('handleBuilderChange', next);
     const query = form?.values?.query || {};
     form?.setValuesIn?.('query', {
       ...next,
@@ -133,7 +140,8 @@ export const QueryPanel: React.FC = observer(() => {
 
       // 通过校验后，写入查询参数并预览
       await ctx.model.onPreview(form.values, true);
-      setShowResult(true);
+      // 调整为不自动展示结果预览
+      // setShowResult(true);
     } catch (error: any) {
       configStore.setError(ctx.model.uid, error?.message);
       setShowResult(true);

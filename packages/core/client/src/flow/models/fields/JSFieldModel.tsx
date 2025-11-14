@@ -7,7 +7,14 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ElementProxy, escapeT, createSafeWindow, createSafeDocument } from '@nocobase/flow-engine';
+import {
+  ElementProxy,
+  tExpr,
+  createSafeWindow,
+  createSafeDocument,
+  createSafeNavigator,
+  compileRunJs,
+} from '@nocobase/flow-engine';
 import React, { useEffect, useRef } from 'react';
 import { FieldModel } from '../base/FieldModel';
 import { resolveRunJsParams } from '../utils/resolveRunJsParams';
@@ -97,7 +104,7 @@ export class JSFieldModel extends FieldModel {
 }
 
 JSFieldModel.define({
-  label: escapeT('JS field'),
+  label: tExpr('JS field'),
   createModelOptions: {
     use: 'JSFieldModel',
   },
@@ -105,11 +112,11 @@ JSFieldModel.define({
 
 JSFieldModel.registerFlow({
   key: 'jsSettings',
-  title: escapeT('JavaScript settings'),
+  title: tExpr('JavaScript settings'),
   manual: true,
   steps: {
     runJs: {
-      title: escapeT('Write JavaScript'),
+      title: tExpr('Write JavaScript'),
       uiSchema: {
         code: {
           type: 'string',
@@ -139,7 +146,22 @@ JSFieldModel.registerFlow({
       defaultParams(ctx) {
         return {
           version: 'v1',
-          code: DEFAULT_CODE,
+          code: `
+function JsReadonlyField() {
+  const React = ctx.React;
+  const { Input } = ctx.antd;
+  return (
+    <Input
+      value={String(ctx.value ?? '')}
+      disabled
+      readOnly
+      style={{ width: '100%' }}
+    />
+  );
+}
+
+ctx.render(<JsReadonlyField />);
+`,
         };
       },
       async handler(ctx, params) {
@@ -153,7 +175,13 @@ JSFieldModel.registerFlow({
             get: () => ctx.model.props?.value,
             cache: false,
           });
-          await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+          const navigator = createSafeNavigator();
+          const compiled = await compileRunJs(code);
+          await ctx.runjs(
+            compiled,
+            { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+            { version },
+          );
         });
       },
     },

@@ -12,7 +12,7 @@ import { css } from '@emotion/css';
 import type { PropertyMetaFactory } from '@nocobase/flow-engine';
 import {
   Droppable,
-  escapeT,
+  tExpr,
   FlowsFloatContextMenu,
   DragHandler,
   MemoFlowModelRenderer,
@@ -20,6 +20,8 @@ import {
   ElementProxy,
   createSafeDocument,
   createSafeWindow,
+  createSafeNavigator,
+  compileRunJs,
 } from '@nocobase/flow-engine';
 import { Tooltip } from 'antd';
 import React from 'react';
@@ -93,7 +95,6 @@ export class JSColumnModel extends TableCustomColumnModel {
 
     return {
       ...this.props,
-      width: 100,
       title: this.props.tooltip ? (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           {titleContent}
@@ -148,7 +149,13 @@ export class JSColumnModel extends TableCustomColumnModel {
           }
           // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [ref?.current]);
-        return <span ref={ref} style={{ display: 'inline-block', maxWidth: '100%' }} />;
+        return (
+          <div
+            style={{ width: this.props.width - 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            <span ref={ref} style={{ maxWidth: '100%' }} />
+          </div>
+        );
       };
       StableComponent.displayName = 'JSColumnModelStableRenderer';
       this._RenderComponent = StableComponent;
@@ -166,12 +173,12 @@ export class JSColumnModel extends TableCustomColumnModel {
 }
 
 JSColumnModel.define({
-  label: escapeT('JS column'),
+  label: tExpr('JS column'),
   createModelOptions: {
     stepParams: {
       tableColumnSettings: {
         title: {
-          title: escapeT('JS column'),
+          title: tExpr('JS column'),
         },
       },
     },
@@ -180,10 +187,10 @@ JSColumnModel.define({
 
 JSColumnModel.registerFlow({
   key: 'jsSettings',
-  title: escapeT('JavaScript settings'),
+  title: tExpr('JavaScript settings'),
   steps: {
     runJs: {
-      title: escapeT('Write JavaScript'),
+      title: tExpr('Write JavaScript'),
       uiSchema: {
         code: {
           type: 'string',
@@ -222,7 +229,13 @@ JSColumnModel.registerFlow({
           ctx.defineProperty('element', {
             get: () => new ElementProxy(element),
           });
-          await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+          const navigator = createSafeNavigator();
+          const compiled = await compileRunJs(code);
+          await ctx.runjs(
+            compiled,
+            { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+            { version },
+          );
         });
       },
     },

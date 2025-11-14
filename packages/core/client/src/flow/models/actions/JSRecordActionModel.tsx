@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { createSafeDocument, createSafeWindow, escapeT } from '@nocobase/flow-engine';
+import { createSafeDocument, createSafeWindow, createSafeNavigator, tExpr, compileRunJs } from '@nocobase/flow-engine';
 import type { ButtonProps } from 'antd/es/button';
 import { CodeEditor } from '../../components/code-editor';
 import { ActionSceneEnum, RecordActionModel } from '../base';
@@ -18,12 +18,12 @@ export class JSRecordActionModel extends RecordActionModel {
 
   defaultProps: ButtonProps = {
     type: 'link',
-    title: escapeT('JS action'),
+    title: tExpr('JS action'),
   };
 }
 
 JSRecordActionModel.define({
-  label: escapeT('JS action'),
+  label: tExpr('JS action'),
   sort: 9999,
   createModelOptions: {
     use: 'JSRecordActionModel',
@@ -33,10 +33,10 @@ JSRecordActionModel.define({
 JSRecordActionModel.registerFlow({
   key: 'clickSettings',
   on: 'click',
-  title: escapeT('Click settings'),
+  title: tExpr('Click settings'),
   steps: {
     runJs: {
-      title: escapeT('Write JavaScript'),
+      title: tExpr('Write JavaScript'),
       uiSchema: {
         code: {
           type: 'string',
@@ -76,7 +76,13 @@ if (!ctx.record) {
       },
       async handler(ctx, params) {
         const { code, version } = resolveRunJsParams(ctx, params);
-        await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+        const navigator = createSafeNavigator();
+        const compiled = await compileRunJs(code);
+        await ctx.runjs(
+          compiled,
+          { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+          { version },
+        );
       },
     },
   },

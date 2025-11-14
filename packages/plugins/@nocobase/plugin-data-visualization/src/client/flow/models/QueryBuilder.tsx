@@ -7,15 +7,15 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import React, { useEffect } from 'react';
-import { FilterGroup, VariableFilterItem } from '@nocobase/client';
+import React from 'react';
 import { useFlowSettingsContext } from '@nocobase/flow-engine';
-import { Form, Space, Collapse, Cascader, Select, Input, Checkbox, Button, InputNumber } from 'antd';
+import { Form, Space, Cascader, Select, Input, Checkbox, Button, InputNumber } from 'antd';
 import { DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined, PlusOutlined } from '@ant-design/icons';
 import { useT } from '../../locale';
-import { DEFAULT_DATA_SOURCE_KEY, useDataSourceManager, useCompile } from '@nocobase/client';
+import { useDataSourceManager, useCompile } from '@nocobase/client';
 import { getFieldOptions, getCollectionOptions, getFormatterOptionsByField } from './QueryBuilder.service';
-import { appendColon } from '../utils';
+import { appendColon, debugLog } from '../utils';
+import AntdFilterSelector from '../components/AntdFilterSelector';
 
 export type QueryBuilderRef = {
   validate: () => Promise<any>;
@@ -59,7 +59,7 @@ export const QueryBuilder = React.forwardRef<
   };
 
   const handleValuesChange = (_: any, allValues: any) => {
-    console.log('---handleValuesChange', allValues);
+    debugLog('---handleValuesChange', allValues);
     onChange?.(allValues);
   };
 
@@ -112,7 +112,7 @@ export const QueryBuilder = React.forwardRef<
                       </Form.Item>
                       <Form.Item name={[field.name, 'aggregation']} style={{ marginBottom: 0 }}>
                         <Select
-                          style={{ minWidth: 74 }}
+                          style={{ minWidth: 75 }}
                           placeholder={t('Aggregation')}
                           options={[
                             { label: t('Sum'), value: 'sum' },
@@ -124,7 +124,7 @@ export const QueryBuilder = React.forwardRef<
                         />
                       </Form.Item>
                       <Form.Item name={[field.name, 'alias']} style={{ marginBottom: 0 }}>
-                        <Input placeholder={t('Alias')} />
+                        <Input style={{ minWidth: 75 }} placeholder={t('Alias')} />
                       </Form.Item>
                       <Form.Item name={[field.name, 'distinct']} valuePropName="checked" style={{ marginBottom: 0 }}>
                         <Checkbox style={{ minWidth: 60 }}>{t('Distinct')}</Checkbox>
@@ -196,7 +196,7 @@ export const QueryBuilder = React.forwardRef<
                           </Form.Item>
                         ) : null}
                         <Form.Item name={[field.name, 'alias']} style={{ marginBottom: 0 }}>
-                          <Input placeholder={t('Alias')} />
+                          <Input style={{ minWidth: 75 }} placeholder={t('Alias')} />
                         </Form.Item>
                         <Button size="small" type="text" onClick={() => remove(field.name)} icon={<DeleteOutlined />} />
                         <Button
@@ -234,16 +234,7 @@ export const QueryBuilder = React.forwardRef<
         <div style={{ fontWeight: 500, marginBottom: 8 }}>{appendColon(t('Filter'), lang)}</div>
         <div style={{ marginBottom: 16 }}>
           <Form.Item name="filter" style={{ overflow: 'auto' }}>
-            <FilterGroup
-              value={form.getFieldValue('filter')}
-              onChange={(v) => {
-                form.setFieldsValue({ filter: v });
-                onChange?.(form.getFieldsValue(true));
-              }}
-              FilterItem={(p) => {
-                return <VariableFilterItem {...p} model={ctx.model} rightAsVariable />;
-              }}
-            />
+            <AntdFilterSelector model={ctx.model} rightAsVariable />
           </Form.Item>
         </div>
 

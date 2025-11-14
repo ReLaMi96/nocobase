@@ -12,7 +12,7 @@ import {
   AddSubModelButton,
   DndProvider,
   FlowSettingsButton,
-  escapeT,
+  tExpr,
   observable,
   useFlowEngine,
 } from '@nocobase/flow-engine';
@@ -56,6 +56,8 @@ const HeaderWrapperComponent = React.memo((props) => {
 export class SubTableFieldModel extends AssociationFieldModel {
   selectedRows = observable.ref([]);
   updateAssociation = true;
+  setCurrentPage;
+  currentPageSize;
   get collection() {
     return this.context.collection;
   }
@@ -114,9 +116,12 @@ export class SubTableFieldModel extends AssociationFieldModel {
     this.context.blockModel.emitter.on('onFieldReset', () => {
       this.props.onChange([]);
     });
-    this.onSelectExitRecordClick = (e) => {
+    this.onSelectExitRecordClick = (setCurrentPage, currentPageSize) => {
+      this.setCurrentPage = setCurrentPage;
+      this.currentPageSize = currentPageSize;
       this.dispatchEvent('openView', {
-        event: e,
+        setCurrentPage,
+        currentPageSize,
       });
     };
   }
@@ -125,13 +130,15 @@ export class SubTableFieldModel extends AssociationFieldModel {
     this.setProps({ onSelectExitRecordClick: fn });
   }
   change() {
+    const lastPage = Math.ceil(this.selectedRows.value.length / this.currentPageSize);
+    this.setCurrentPage(lastPage);
     this.props.onChange(this.selectedRows.value);
   }
 }
 
 SubTableFieldModel.registerFlow({
   key: 'loadTableColumns',
-  title: escapeT('Association table settings'),
+  title: tExpr('Association table settings'),
   sort: 300,
   steps: {
     aclCheck: {
@@ -143,14 +150,14 @@ SubTableFieldModel.registerFlow({
       },
     },
     allowAddNew: {
-      title: escapeT('Allow add new data'),
+      title: tExpr('Allow add new data'),
       uiSchema: {
         allowAddNew: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -164,14 +171,14 @@ SubTableFieldModel.registerFlow({
       },
     },
     enableIndexColumn: {
-      title: escapeT('Enable index column'),
+      title: tExpr('Enable index column'),
       uiSchema: {
         enableIndexColumn: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -185,14 +192,14 @@ SubTableFieldModel.registerFlow({
       },
     },
     allowSelectExistingRecord: {
-      title: escapeT('Allow selection of existing records'),
+      title: tExpr('Allow selection of existing records'),
       uiSchema: {
         allowSelectExistingRecord: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -206,14 +213,14 @@ SubTableFieldModel.registerFlow({
       },
     },
     allowDisassociation: {
-      title: escapeT('Allow disassociation'),
+      title: tExpr('Allow disassociation'),
       uiSchema: {
         allowDisassociation: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -226,18 +233,43 @@ SubTableFieldModel.registerFlow({
         });
       },
     },
+    pageSize: {
+      title: tExpr('Page size'),
+      uiSchema: {
+        pageSize: {
+          'x-component': 'Select',
+          'x-decorator': 'FormItem',
+          enum: [
+            { label: '5', value: 5 },
+            { label: '10', value: 10 },
+            { label: '20', value: 20 },
+            { label: '50', value: 50 },
+            { label: '100', value: 100 },
+            { label: '200', value: 200 },
+          ],
+        },
+      },
+      defaultParams: {
+        pageSize: 10,
+      },
+      handler(ctx, params) {
+        ctx.model.setProps({
+          pageSize: params.pageSize,
+        });
+      },
+    },
   },
 });
 
 SubTableFieldModel.registerFlow({
   key: 'selectExitRecordSettings',
-  title: escapeT('Selector setting'),
+  title: tExpr('Selector setting'),
   on: {
     eventName: 'openView',
   },
   steps: {
     openView: {
-      title: escapeT('Edit popup'),
+      title: tExpr('Edit popup'),
       uiSchema(ctx) {
         if (!ctx.model.props.allowSelectExistingRecord) {
           return;
@@ -245,21 +277,21 @@ SubTableFieldModel.registerFlow({
         return {
           mode: {
             type: 'string',
-            title: escapeT('Open mode'),
+            title: tExpr('Open mode'),
             enum: [
-              { label: escapeT('Drawer'), value: 'drawer' },
-              { label: escapeT('Dialog'), value: 'dialog' },
+              { label: tExpr('Drawer'), value: 'drawer' },
+              { label: tExpr('Dialog'), value: 'dialog' },
             ],
             'x-decorator': 'FormItem',
             'x-component': 'Radio.Group',
           },
           size: {
             type: 'string',
-            title: escapeT('Popup size'),
+            title: tExpr('Popup size'),
             enum: [
-              { label: escapeT('Small'), value: 'small' },
-              { label: escapeT('Medium'), value: 'medium' },
-              { label: escapeT('Large'), value: 'large' },
+              { label: tExpr('Small'), value: 'small' },
+              { label: tExpr('Medium'), value: 'medium' },
+              { label: tExpr('Large'), value: 'large' },
             ],
             'x-decorator': 'FormItem',
             'x-component': 'Radio.Group',
@@ -306,7 +338,15 @@ SubTableFieldModel.registerFlow({
               selectedRowKeys: undefined,
               onChange: (_, selectedRows) => {
                 const prev = ctx.model.props.value || [];
-                const merged = [...prev, ...selectedRows];
+                const merged = [
+                  ...prev,
+                  ...selectedRows.map((v) => {
+                    return {
+                      ...v,
+                      isNew: true,
+                    };
+                  }),
+                ];
 
                 // 去重，防止同一个值重复
                 const unique = merged.filter(
@@ -314,7 +354,6 @@ SubTableFieldModel.registerFlow({
                     index ===
                     self.findIndex((r) => r[ctx.collection.filterTargetKey] === row[ctx.collection.filterTargetKey]),
                 );
-
                 ctx.model.selectedRows.value = unique;
               },
             },
@@ -337,7 +376,7 @@ SubTableFieldModel.registerFlow({
 });
 
 SubTableFieldModel.define({
-  label: escapeT('Sub-table'),
+  label: tExpr('Sub-table'),
 });
 export { SubTableColumnModel };
 

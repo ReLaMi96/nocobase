@@ -7,29 +7,52 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { escapeT, MultiRecordResource, observer, useFlowSettingsContext } from '@nocobase/flow-engine';
-import { isEmptyFilter, removeNullCondition, transformFilter } from '@nocobase/utils/client';
-import { Button, ButtonProps, Popover, Select, Space } from 'antd';
-import React, { FC } from 'react';
-import { FilterGroup, FilterItem, VariableFilterItem } from '../../components/filter';
+import { tExpr, MultiRecordResource, useFlowSettingsContext } from '@nocobase/flow-engine';
+import { isEmptyFilter, transformFilter } from '@nocobase/utils/client';
+import { ButtonProps, Popover, Select } from 'antd';
+import React from 'react';
+import { FilterGroup, VariableFilterItem } from '../../components/filter';
 import { ActionModel } from '../base';
+import { FilterContainer } from '../../components/filter/FilterContainer';
 
 export class FilterActionModel extends ActionModel {
   static scene = 'collection';
+
+  private readonly map = new WeakMap<any, any>();
 
   declare props: ButtonProps & {
     filterValue?: any;
     ignoreFieldsNames?: string[];
     open?: boolean;
     position: 'left';
+    filterableFieldNames?: string[];
   };
 
   defaultProps: any = {
     type: 'default',
-    title: escapeT('Filter'),
+    title: tExpr('Filter'),
     icon: 'FilterOutlined',
     filterValue: { logic: '$and', items: [] },
   };
+
+  getIgnoreFieldNames() {
+    if (this.map.has(this.props.filterableFieldNames)) {
+      return this.map.get(this.props.filterableFieldNames);
+    }
+
+    const fields =
+      this.context.blockModel.collection?.getFields().filter((field) => {
+        // 过滤掉附件字段，因为会报错：Target collection attachments not found for field xxx
+        return field.target !== 'attachments';
+      }) || [];
+
+    const result = getIgnoreFieldNames(
+      this.props.filterableFieldNames || [],
+      fields.map((field) => field.name),
+    );
+    this.map.set(this.props.filterableFieldNames, result);
+    return result;
+  }
 
   render() {
     return (
@@ -39,7 +62,9 @@ export class FilterActionModel extends ActionModel {
           <FilterContainer
             value={this.props.filterValue}
             ctx={this.context}
-            FilterItem={(props) => <VariableFilterItem {...props} model={this} />}
+            FilterItem={(props) => (
+              <VariableFilterItem {...props} model={this} ignoreFieldNames={this.getIgnoreFieldNames()} />
+            )}
           />
         }
         trigger="click"
@@ -58,54 +83,55 @@ export class FilterActionModel extends ActionModel {
 }
 
 FilterActionModel.define({
-  label: escapeT('Filter'),
+  label: tExpr('Filter'),
   toggleable: true,
 });
 
 FilterActionModel.registerFlow({
   key: 'filterSettings',
-  title: escapeT('Filter settings'),
+  title: tExpr('Filter settings'),
   steps: {
     position: {
       handler(ctx, params) {
         ctx.model.setProps('position', params.position || 'left');
       },
     },
-    filterableFieldsNames: {
-      title: escapeT('Filterable fields'),
+    filterableFieldNames: {
+      title: tExpr('Filterable fields'),
       uiSchema: {
-        filterableFieldsNames: {
+        filterableFieldNames: {
           type: 'array',
           'x-decorator': 'FormItem',
           'x-component': (props) => {
             // eslint-disable-next-line react-hooks/rules-of-hooks
             const { model } = useFlowSettingsContext();
-            const options = model.context.blockModel.collection.getFields().map((field) => {
-              return {
-                label: field.title,
-                value: field.name,
-              };
-            });
+            const dm = model?.context?.app?.dataSourceManager;
+            const fiMgr = dm?.collectionFieldInterfaceManager;
+            const filterable = getFilterableFields(model.context.blockModel.collection, fiMgr);
+            const options = filterable.map((field: any) => ({ label: field.title, value: field.name }));
             return <Select {...props} options={options} />;
           },
           'x-component-props': {
             mode: 'multiple',
-            placeholder: escapeT('Please select non-filterable fields'),
+            placeholder: tExpr('Please select filterable fields'),
           },
         },
       },
       defaultParams(ctx) {
-        const names = ctx.blockModel.collection.getFields().map((field) => field.name);
+        // 默认仅包含“可筛选”的字段（与 1.0 一致），以避免 JSON 等未提供 operators 的字段出现在默认允许集合中
+        const dm = ctx?.model?.context?.app?.dataSourceManager;
+        const fiMgr = dm?.collectionFieldInterfaceManager;
+        const names = getFilterableFields(ctx.blockModel.collection, fiMgr).map((field: any) => field.name);
         return {
-          filterableFieldsNames: names || [],
+          filterableFieldNames: names || [],
         };
       },
       handler(ctx, params) {
-        ctx.model.setProps('filterableFieldsNames', params.filterableFieldsNames);
+        ctx.model.setProps('filterableFieldNames', params.filterableFieldNames);
       },
     },
     defaultFilter: {
-      title: escapeT('Default filter conditions'),
+      title: tExpr('Default filter conditions'),
       uiSchema: {
         defaultFilter: {
           type: 'object',
@@ -146,7 +172,7 @@ FilterActionModel.registerFlow({
           return;
         }
 
-        const filter = removeNullCondition(transformFilter(ctx.model.props.filterValue));
+        const filter = transformFilter(ctx.model.props.filterValue);
 
         if (!isEmptyFilter(filter)) {
           resource.addFilterGroup(ctx.model.uid, filter);
@@ -164,7 +190,7 @@ FilterActionModel.registerFlow({
 
 FilterActionModel.registerFlow({
   key: 'resetSettings',
-  title: escapeT('Reset'),
+  title: tExpr('Reset'),
   on: 'reset',
   steps: {
     submit: {
@@ -194,6 +220,18 @@ FilterActionModel.registerFlow({
   },
 });
 
+function getFilterableFields(collection: any, fiMgr: any) {
+  const fields = collection?.getFields?.() || [];
+  if (!fiMgr) return [];
+  return fields.filter((field: any) => {
+    if (field.target === 'attachments') return false;
+    if (!field?.interface) return false;
+    if (field?.filterable === false) return false;
+    const fi = fiMgr.getFieldInterface(field.interface);
+    return !!fi?.filterable;
+  });
+}
+
 function clearInputValue(value: any) {
   if (Array.isArray(value)) {
     return value.map((item) => clearInputValue(item));
@@ -209,105 +247,6 @@ function clearInputValue(value: any) {
   return undefined;
 }
 
-/**
- * 筛选项组件的属性接口
- */
-interface FilterItemProps {
-  value: {
-    path: string;
-    operator: string;
-    value: string;
-  };
+function getIgnoreFieldNames(filterableFieldNames: string[], allFields: string[]) {
+  return allFields?.filter((field) => !filterableFieldNames.includes(field));
 }
-
-/**
- * FilterContent 组件的属性接口
- */
-interface FilterContentProps {
-  /** 响应式的过滤条件对象 */
-  value: Record<string, any>;
-  /** 自定义筛选项组件 */
-  FilterItem?: React.FC<FilterItemProps>;
-  /** 上下文对象，用于获取字段列表等元信息 */
-  ctx: any;
-}
-
-/**
- * 筛选内容组件
- *
- * 支持新的数据结构格式：
- * ```typescript
- * {
- *   "logic": "or",
- *   "items": [
- *     {
- *       "leftValue": "isAdmin",
- *       "operator": "eq",
- *       "rightValue": true
- *     },
- *     {
- *       "logic": "and",
- *       "items": [...]
- *     }
- *   ]
- * }
- * ```
- *
- * @example
- * ```typescript
- * const filterValue = observable({
- *   logic: 'and',
- *   items: []
- * });
- *
- * <FilterContent
- *   value={filterValue}
- *   ctx={contextObject}
- *   FormItem={CustomFormItem}
- * />
- * ```
- */
-export const FilterContainer: FC<FilterContentProps> = observer(
-  (props) => {
-    const { value, FilterItem, ctx } = props;
-
-    // 确保 value 有正确的默认结构
-    if (!value.logic) {
-      value.logic = 'and';
-    }
-    if (!Array.isArray(value.items)) {
-      value.items = [];
-    }
-
-    const handleReset = () => {
-      // 触发重置事件，由外部组件处理
-      if (ctx?.model?.dispatchEvent) {
-        ctx.model.dispatchEvent('reset');
-      }
-    };
-
-    const handleSubmit = () => {
-      // 触发提交事件，由外部组件处理
-      if (ctx?.model?.dispatchEvent) {
-        ctx.model.dispatchEvent('submit');
-      }
-    };
-
-    const translate = ctx?.model?.translate || ((text: string) => text);
-
-    return (
-      <>
-        <FilterGroup value={value} FilterItem={FilterItem} />
-        <Space style={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={handleReset}>{translate('Reset')}</Button>
-          <Button type="primary" onClick={handleSubmit}>
-            {translate('Submit')}
-          </Button>
-        </Space>
-      </>
-    );
-  },
-  {
-    displayName: 'FilterContainer',
-  },
-);

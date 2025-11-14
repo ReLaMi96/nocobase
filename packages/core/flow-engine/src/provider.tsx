@@ -14,6 +14,7 @@ import { FlowContextProvider } from './FlowContextProvider';
 import { FlowEngine } from './flowEngine';
 import { useDialog, useDrawer, usePage, usePopover } from './views';
 import { FlowViewer } from './views/FlowView';
+import { observer } from '@formily/reactive-react';
 
 interface FlowEngineProviderProps {
   engine: FlowEngine;
@@ -74,20 +75,20 @@ export const FlowEngineGlobalsContextProvider: React.FC<{ children: React.ReactN
   }, [engine, drawer, modal, message, notification, config, popover, token, dialog, embed]);
 
   return (
-    <>
+    <ConfigProvider {...config} locale={engine.context.locales?.antd} popupMatchSelectWidth={false}>
       {children}
       {contextHolder as any}
       {popoverContextHolder as any}
       {pageContextHolder as any}
       {dialogContextHolder as any}
       {/* The modal context is provided by App.useApp() */}
-    </>
+    </ConfigProvider>
   );
 };
-
-export const useFlowEngine = (): FlowEngine => {
+// 不 throw Error 怎么处理？
+export const useFlowEngine = ({ throwError = true } = {}): FlowEngine => {
   const context = useContext(FlowEngineReactContext);
-  if (!context) {
+  if (!context && throwError) {
     // This error should ideally not be hit if FlowEngineProvider is used correctly at the root
     // and always supplied with an engine.
     throw new Error(

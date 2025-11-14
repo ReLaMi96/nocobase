@@ -15,7 +15,7 @@ import {
   Droppable,
   DragOverlayConfig,
   EMPTY_COLUMN_UID,
-  escapeT,
+  tExpr,
   findModelUidPosition,
   FlowModel,
   MemoFlowModelRenderer,
@@ -113,8 +113,8 @@ export class GridModel<T extends { subModels: { items: FlowModel[] } } = Default
     return this._memoItemFlowSettings;
   }
 
-  onInit(options: any): void {
-    super.onInit(options);
+  onMount(): void {
+    super.onMount();
     this.emitter.on('onSubModelAdded', (model: FlowModel) => {
       if (!model.isNew) {
         return;
@@ -559,28 +559,35 @@ export class GridModel<T extends { subModels: { items: FlowModel[] } } = Default
                 dragOverlayRect={this.props.dragOverlayRect}
                 renderItem={(uid) => {
                   const baseItem = this.flowEngine.getModel(uid);
+                  const fieldKey = this.context.fieldKey;
                   const rowIndex = this.context.fieldIndex;
+                  const record = this.context.record;
                   // 在数组子表单场景下，为每个子项创建行内 fork，并透传当前行索引
                   const item =
                     rowIndex == null
                       ? baseItem
                       : (() => {
-                          const fork = baseItem.createFork({}, `${rowIndex}:${uid}`);
+                          const fork = baseItem.createFork({}, `${fieldKey}:${uid}`);
                           fork.context.defineProperty('fieldIndex', {
                             get: () => rowIndex,
                           });
-                          fork.setProps({ disabled: this.props.disabled });
+                          fork.context.defineProperty('fieldKey', {
+                            get: () => fieldKey,
+                          });
+                          fork.context.defineProperty('record', {
+                            get: () => record,
+                          });
                           return fork;
                         })();
                   return (
                     <Droppable model={item}>
                       <MemoFlowModelRenderer
                         model={item}
-                        key={`${item.uid}:${rowIndex}`}
-                        fallback={this.itemFallback}
+                        key={`${item.uid}:${fieldKey}:${(item as any)?.use || (item as any)?.constructor?.name || 'm'}`}
+                        fallback={baseItem.skeleton || this.itemFallback}
                         showFlowSettings={this.flowEngine.flowSettings.enabled ? this.getItemFlowSettings() : false}
                         showErrorFallback
-                        settingsMenuLevel={this.itemSettingsMenuLevel}
+                        settingsMenuLevel={(item as any)?.settingsMenuLevel ?? this.itemSettingsMenuLevel}
                         showTitle
                         extraToolbarItems={this.itemExtraToolbarItems}
                       />
@@ -610,22 +617,22 @@ GridModel.registerFlow({
     grid: {
       uiSchema: {
         rows: {
-          title: escapeT('Rows'),
+          title: tExpr('Rows'),
           'x-decorator': 'FormItem',
           'x-component': JsonEditor,
           'x-component-props': {
             autoSize: { minRows: 10, maxRows: 20 },
-            description: escapeT('Configure the rows and columns of the grid.'),
+            description: tExpr('Configure the rows and columns of the grid.'),
           },
         },
         sizes: {
-          title: escapeT('Sizes'),
+          title: tExpr('Sizes'),
           'x-decorator': 'FormItem',
           'x-component': JsonEditor,
           'x-component-props': {
             rows: 5,
           },
-          description: escapeT(
+          description: tExpr(
             'Configure the sizes of each row. The value is an array of numbers representing the width of each column in the row.',
           ),
         },

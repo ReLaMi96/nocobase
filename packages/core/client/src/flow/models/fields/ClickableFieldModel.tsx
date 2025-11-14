@@ -7,13 +7,14 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { CollectionField, escapeT } from '@nocobase/flow-engine';
+import { CollectionField, tExpr } from '@nocobase/flow-engine';
 import { Tag, Typography } from 'antd';
 import { castArray } from 'lodash';
 import { css } from '@emotion/css';
 import React from 'react';
 import { openViewFlow } from '../../flows/openViewFlow';
 import { FieldModel } from '../base';
+import { EllipsisWithTooltip } from '../../components';
 
 export class ClickableFieldModel extends FieldModel {
   get collectionField(): CollectionField {
@@ -50,11 +51,11 @@ export class ClickableFieldModel extends FieldModel {
     return value;
   }
 
-  renderInDisplayStyle(value, record?) {
-    if (typeof value === 'object') {
+  renderInDisplayStyle(value, record?, isToMany?) {
+    const { clickToOpen = false, displayStyle, titleField, overflowMode, ...restProps } = this.props;
+    if (value && typeof value === 'object' && restProps.target) {
       return;
     }
-    const { clickToOpen = false, displayStyle, titleField, overflowMode, ...restProps } = this.props;
     const result = this.renderComponent(value);
     const display = record ? (value ? result : 'N/A') : result;
     const isTag = displayStyle === 'tag';
@@ -66,6 +67,7 @@ export class ClickableFieldModel extends FieldModel {
       cursor: clickToOpen ? 'pointer' : 'default',
       alignItems: 'center',
       gap: 4,
+      display: isToMany && 'inline-block',
     };
 
     if (isTag) {
@@ -95,42 +97,30 @@ export class ClickableFieldModel extends FieldModel {
    * 基类统一渲染逻辑
    */
   render(): any {
-    const { value, displayStyle, fieldNames, overflowMode, width } = this.props;
+    const { value, displayStyle, fieldNames, overflowMode } = this.props;
     const titleField = this.props.titleField || fieldNames?.label;
-    const typographyProps = {
-      ellipsis:
-        overflowMode === 'ellipsis'
-          ? {
-              tooltip: {
-                rootClassName: css`
-                  .ant-tooltip-inner {
-                    color: #000;
-                  }
-                `,
-                color: '#fff',
-              },
-            }
-          : false, // 处理省略显示
-      style: {
-        whiteSpace: overflowMode === 'wrap' ? 'normal' : 'nowrap', // 控制换行
-        width: width || 'auto',
-      },
-    };
+    const ellipsis = overflowMode === 'ellipsis';
     if (titleField) {
       if (displayStyle === 'tag') {
         const result = castArray(value).map((v, idx) => (
           <React.Fragment key={idx}>{this.renderInDisplayStyle(v?.[titleField], v)}</React.Fragment>
         ));
-        return <Typography.Text {...typographyProps}>{result}</Typography.Text>;
+        return <EllipsisWithTooltip ellipsis={ellipsis}>{result}</EllipsisWithTooltip>;
       } else {
         const result = castArray(value).flatMap((v, idx) => {
-          const node = this.renderInDisplayStyle(v?.[titleField], v);
+          const node = this.renderInDisplayStyle(v?.[titleField], v, Array.isArray(value));
           return idx === 0 ? [node] : [<span key={`sep-${idx}`}>, </span>, node];
         });
-        return <Typography.Text {...typographyProps}>{result}</Typography.Text>;
+        return (
+          <EllipsisWithTooltip ellipsis={ellipsis}>
+            <span style={{ flexWrap: 'nowrap' }}>{result}</span>
+          </EllipsisWithTooltip>
+        );
       }
     } else {
-      const textContent = <Typography.Text {...typographyProps}>{this.renderInDisplayStyle(value)}</Typography.Text>;
+      const textContent = (
+        <EllipsisWithTooltip ellipsis={ellipsis}>{this.renderInDisplayStyle(value)}</EllipsisWithTooltip>
+      );
       return textContent;
     }
   }
@@ -138,11 +128,11 @@ export class ClickableFieldModel extends FieldModel {
 
 ClickableFieldModel.registerFlow({
   key: 'displayFieldSettings',
-  title: escapeT('Display Field settings'),
+  title: tExpr('Display Field settings'),
   sort: 200,
   steps: {
     displayStyle: {
-      title: escapeT('Display style'),
+      title: tExpr('Display style'),
       uiSchema: (ctx) => {
         if (['select', 'multipleSelect', 'radioGroup', 'checkboxGroup'].includes(ctx.collectionField?.interface)) {
           return null;
@@ -153,8 +143,8 @@ ClickableFieldModel.registerFlow({
             'x-component': 'Radio.Group',
             'x-decorator': 'FormItem',
             enum: [
-              { label: escapeT('Tag'), value: 'tag' },
-              { label: escapeT('Text'), value: 'text' },
+              { label: tExpr('Tag'), value: 'tag' },
+              { label: tExpr('Text'), value: 'text' },
             ],
           },
         };
@@ -167,7 +157,7 @@ ClickableFieldModel.registerFlow({
       },
     },
     clickToOpen: {
-      title: escapeT('Enable click to open'),
+      title: tExpr('Enable click to open'),
       uiSchema: {
         clickToOpen: {
           'x-component': 'Switch',
@@ -180,11 +170,11 @@ ClickableFieldModel.registerFlow({
         };
       },
       handler(ctx, params) {
-        ctx.model.setProps({ clickToOpen: params.clickToOpen });
+        ctx.model.setProps({ clickToOpen: params.clickToOpen, ...ctx.collectionField.getComponentProps() });
       },
     },
     overflowMode: {
-      title: escapeT('Content overflow display mode'),
+      title: tExpr('Content overflow display mode'),
       use: 'overflowMode',
     },
   },

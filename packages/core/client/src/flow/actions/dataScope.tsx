@@ -7,8 +7,8 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { defineAction, MultiRecordResource, useFlowSettingsContext } from '@nocobase/flow-engine';
-import { isEmptyFilter, removeNullCondition, transformFilter, tval } from '@nocobase/utils/client';
+import { defineAction, MultiRecordResource, pruneFilter, tExpr, useFlowSettingsContext } from '@nocobase/flow-engine';
+import { isEmptyFilter, transformFilter } from '@nocobase/utils/client';
 import _ from 'lodash';
 import React from 'react';
 import { FilterGroup, VariableFilterItem } from '../components/filter';
@@ -16,7 +16,7 @@ import { FieldModel } from '../models/base/FieldModel';
 
 export const dataScope = defineAction({
   name: 'dataScope',
-  title: tval('Data scope'),
+  title: tExpr('Data scope'),
   uiMode: {
     type: 'dialog',
     props: {
@@ -50,7 +50,7 @@ export const dataScope = defineAction({
       return;
     }
 
-    const filter = removeNullCondition(transformFilter(params.filter));
+    const filter = pruneFilter(transformFilter(params.filter));
 
     if (isEmptyFilter(filter)) {
       resource.removeFilterGroup(ctx.model.uid);

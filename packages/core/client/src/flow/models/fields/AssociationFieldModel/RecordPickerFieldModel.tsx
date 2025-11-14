@@ -9,9 +9,8 @@
 
 import {
   CollectionField,
-  createCollectionContextMeta,
   EditableItemModel,
-  escapeT,
+  tExpr,
   FlowModel,
   FlowModelRenderer,
   observable,
@@ -134,14 +133,13 @@ export class RecordPickerFieldModel extends FieldModel {
     // For association fields, expose target collection to variable selectors
     this.context.defineProperty('collection', {
       get: () => this.context.collectionField?.targetCollection,
-      meta: createCollectionContextMeta(
-        () => this.context.collectionField?.targetCollection,
-        this.context.t('Current collection'),
-      ),
     });
+  }
+  protected onMount(): void {
     this.onClick = (e) => {
       this.dispatchEvent('openView', {
         event: e,
+        onChange: this.props.onChange,
       });
     };
   }
@@ -156,31 +154,31 @@ export class RecordPickerFieldModel extends FieldModel {
 
 RecordPickerFieldModel.registerFlow({
   key: 'popupSettings',
-  title: escapeT('Selector setting'),
+  title: tExpr('Selector setting'),
   on: {
     eventName: 'openView',
   },
   steps: {
     openView: {
-      title: escapeT('Edit popup'),
+      title: tExpr('Edit popup'),
       uiSchema: {
         mode: {
           type: 'string',
-          title: escapeT('Open mode'),
+          title: tExpr('Open mode'),
           enum: [
-            { label: escapeT('Drawer'), value: 'drawer' },
-            { label: escapeT('Dialog'), value: 'dialog' },
+            { label: tExpr('Drawer'), value: 'drawer' },
+            { label: tExpr('Dialog'), value: 'dialog' },
           ],
           'x-decorator': 'FormItem',
           'x-component': 'Radio.Group',
         },
         size: {
           type: 'string',
-          title: escapeT('Popup size'),
+          title: tExpr('Popup size'),
           enum: [
-            { label: escapeT('Small'), value: 'small' },
-            { label: escapeT('Medium'), value: 'medium' },
-            { label: escapeT('Large'), value: 'large' },
+            { label: tExpr('Small'), value: 'small' },
+            { label: tExpr('Medium'), value: 'medium' },
+            { label: tExpr('Large'), value: 'large' },
           ],
           'x-decorator': 'FormItem',
           'x-component': 'Radio.Group',
@@ -191,6 +189,7 @@ RecordPickerFieldModel.registerFlow({
         size: 'medium',
       },
       handler(ctx, params) {
+        const { onChange } = ctx.inputArgs;
         const toOne = ['belongsTo', 'hasOne'].includes(ctx.collectionField.type);
         const sizeToWidthMap: Record<string, any> = {
           drawer: {
@@ -229,7 +228,7 @@ RecordPickerFieldModel.registerFlow({
                 if (toOne) {
                   // 单选
                   ctx.model.selectedRows.value = selectedRows?.[0];
-                  ctx.model.change();
+                  onChange(ctx.model.selectedRows.value);
                   ctx.model._closeView?.();
                 } else {
                   // 多选：追加
@@ -267,7 +266,7 @@ RecordPickerFieldModel.registerFlow({
 //专有配置项
 RecordPickerFieldModel.registerFlow({
   key: 'recordPickerSettings',
-  title: escapeT('RecordPicker settings'),
+  title: tExpr('RecordPicker settings'),
   sort: 200,
   steps: {
     fieldNames: {
@@ -277,7 +276,7 @@ RecordPickerFieldModel.registerFlow({
 });
 
 RecordPickerFieldModel.define({
-  label: escapeT('Record picker'),
+  label: tExpr('Record picker'),
 });
 
 EditableItemModel.bindModelToInterface('RecordPickerFieldModel', [

@@ -34,7 +34,7 @@ export const errors: AppErrors = {
   APP_ERROR: {
     status: 503,
     message: ({ app }) => {
-      const error = AppSupervisor.getInstance().appErrors[app.name];
+      const error = AppSupervisor.getInstance().appErrors[app?.name];
       if (!error) {
         return '';
       }
@@ -49,10 +49,16 @@ export const errors: AppErrors = {
     },
 
     code: ({ app }): string => {
-      const error = AppSupervisor.getInstance().appErrors[app.name];
+      const error = AppSupervisor.getInstance().appErrors[app?.name];
       return error['code'] || 'APP_ERROR';
     },
     command: ({ app }) => app.getMaintaining().command,
+    maintaining: true,
+  },
+
+  APP_PREPARING: {
+    status: 503,
+    message: ({ appName }) => `application ${appName} is preparing, please wait patiently`,
     maintaining: true,
   },
 
@@ -64,13 +70,13 @@ export const errors: AppErrors = {
 
   APP_STOPPED: {
     status: 503,
-    message: ({ app }) => `application ${app.name} is stopped`,
+    message: ({ app }) => `application ${app?.name} is stopped`,
     maintaining: true,
   },
 
   APP_INITIALIZED: {
     status: 503,
-    message: ({ app }) => `application ${app.name} is initialized, waiting for command`,
+    message: ({ app }) => `application ${app?.name} is initialized, please refresh the page`,
     maintaining: true,
   },
 
@@ -104,7 +110,7 @@ export const errors: AppErrors = {
   APP_RUNNING: {
     status: 200,
     maintaining: false,
-    message: ({ message, app }) => message || `application ${app.name} is running`,
+    message: ({ message, app }) => message || `application ${app?.name} is running`,
   },
 
   UNKNOWN_ERROR: {

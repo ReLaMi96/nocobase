@@ -7,11 +7,10 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { defineAction, escapeT } from '@nocobase/flow-engine';
-import { uid } from '@formily/shared';
+import { defineAction, tExpr } from '@nocobase/flow-engine';
 
 export const required = defineAction({
-  title: escapeT('Required'),
+  title: tExpr('Required'),
   name: 'required',
   uiSchema: async (ctx) => {
     const joiRules: any[] = (ctx.model as any).collectionField?.validation?.rules || [];
@@ -23,8 +22,8 @@ export const required = defineAction({
         'x-component': 'Switch',
         'x-decorator': 'FormItem',
         'x-component-props': {
-          checkedChildren: escapeT('Yes'),
-          unCheckedChildren: escapeT('No'),
+          checkedChildren: tExpr('Yes'),
+          unCheckedChildren: tExpr('No'),
         },
         'x-disabled': hasRequiredInCollection,
       },
@@ -44,6 +43,12 @@ export const required = defineAction({
     rules = rules.filter((rule) => !rule.required);
     // 全局已设置必填不可覆盖
     if (params.required && !hasRequiredInCollection) {
+      rules.push({
+        required: true,
+        message: ctx.t('The field value is required'),
+      });
+    }
+    if (hasRequiredInCollection && !rules.some((v) => v.required)) {
       rules.push({
         required: true,
         message: ctx.t('The field value is required'),

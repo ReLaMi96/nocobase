@@ -7,7 +7,15 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ElementProxy, FormItem, createSafeDocument, createSafeWindow, escapeT } from '@nocobase/flow-engine';
+import {
+  ElementProxy,
+  FormItem,
+  createSafeDocument,
+  createSafeWindow,
+  createSafeNavigator,
+  tExpr,
+  compileRunJs,
+} from '@nocobase/flow-engine';
 import React from 'react';
 import { CodeEditor } from '../../components/code-editor';
 import { CommonItemModel } from '../base/CommonItemModel';
@@ -85,7 +93,7 @@ export class JSItemModel extends CommonItemModel {
 }
 
 JSItemModel.define({
-  label: escapeT('JS item'),
+  label: tExpr('JS item'),
   // 明确指定 createModelOptions，避免在构建压缩后通过类名推断失败
   createModelOptions: {
     use: 'JSItemModel',
@@ -95,10 +103,10 @@ JSItemModel.define({
 
 JSItemModel.registerFlow({
   key: 'jsSettings',
-  title: escapeT('JavaScript settings'),
+  title: tExpr('JavaScript settings'),
   steps: {
     runJs: {
-      title: escapeT('Write JavaScript'),
+      title: tExpr('Write JavaScript'),
       uiSchema: {
         code: {
           type: 'string',
@@ -129,12 +137,17 @@ JSItemModel.registerFlow({
         return {
           version: 'v1',
           code: `
-ctx.element.innerHTML = \`
-  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6;">
-    <h3 style="color: #1890ff; margin: 0 0 12px 0; font-size: 18px; font-weight: 600;">JS Item</h3>
-    <div style="color:#555">This area is rendered by your JavaScript code.</div>
-  </div>
-\`;`.trim(),
+function JsItem() {
+  return (
+    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", lineHeight: 1.6 }}>
+      <h3 style={{ color: '#1890ff', margin: '0 0 12px 0', fontSize: 18, fontWeight: 600 }}>JS Item</h3>
+      <div style={{ color: '#555' }}>This area is rendered by your JavaScript code.</div>
+    </div>
+  );
+}
+
+ctx.render(<JsItem />);
+`.trim(),
         };
       },
       async handler(ctx, params) {
@@ -143,7 +156,13 @@ ctx.element.innerHTML = \`
           ctx.defineProperty('element', {
             get: () => new ElementProxy(element),
           });
-          await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+          const navigator = createSafeNavigator();
+          const compiled = await compileRunJs(code);
+          await ctx.runjs(
+            compiled,
+            { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+            { version },
+          );
         });
       },
     },

@@ -22,10 +22,12 @@ const snippets: Record<string, () => Promise<any>> = {
   'global/open-view-drawer': () => import('./global/open-view-drawer.snippet'),
   'global/open-view-dialog': () => import('./global/open-view-dialog.snippet'),
   'global/query-selector': () => import('./global/query-selector.snippet'),
+  'global/clipboard-copy-text': () => import('./global/clipboard-copy-text.snippet'),
   // libs
   'scene/block/echarts-init': () => import('./scene/block/echarts-init.snippet'),
   // scene/block
   'scene/block/render-react': () => import('./scene/block/render-react.snippet'),
+  'scene/block/render-react-jsx': () => import('./scene/block/render-react-jsx.snippet'),
   'scene/block/render-button-handler': () => import('./scene/block/render-button-handler.snippet'),
   'scene/block/add-event-listener': () => import('./scene/block/add-event-listener.snippet'),
   'scene/block/chartjs-bar': () => import('./scene/block/chartjs-bar.snippet'),

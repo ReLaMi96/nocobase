@@ -12,6 +12,7 @@ export * from './types';
 
 // 工具函数
 export * from './utils';
+export { compileRunJs } from './utils/jsxTransform';
 
 // 资源类
 export * from './resources';
@@ -44,3 +45,5 @@ export { getSnippetBody, listSnippetsForContext } from './runjs-context/snippets
 export * from './views';
 
 export * from './FlowDefinition';
+export { createViewScopedEngine } from './ViewScopedFlowEngine';
+export { createBlockScopedEngine } from './BlockScopedFlowEngine';

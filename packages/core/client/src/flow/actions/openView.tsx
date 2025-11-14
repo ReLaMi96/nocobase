@@ -7,7 +7,14 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { defineAction, escapeT, FlowModelContext, FlowModel, useFlowSettingsContext } from '@nocobase/flow-engine';
+import {
+  defineAction,
+  tExpr,
+  FlowModelContext,
+  FlowModel,
+  useFlowSettingsContext,
+  ActionScene,
+} from '@nocobase/flow-engine';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input, Select, Cascader } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
@@ -15,6 +22,7 @@ import { useField, useForm, useFormEffects } from '@formily/react';
 import { onFieldValueChange } from '@formily/core';
 import { FlowPage } from '../FlowPage';
 import { VariableInput } from '@nocobase/flow-engine';
+import { RootPageModel } from '../models';
 
 /**
  * 弹窗打开动作（openView）配置
@@ -35,26 +43,26 @@ import { VariableInput } from '@nocobase/flow-engine';
 
 export const openView = defineAction({
   name: 'openView',
-  title: escapeT('Edit popup'),
+  title: tExpr('Edit popup'),
   uiSchema: {
     mode: {
       type: 'string',
-      title: escapeT('Open mode'),
+      title: tExpr('Open mode'),
       enum: [
-        { label: escapeT('Drawer'), value: 'drawer' },
-        { label: escapeT('Dialog'), value: 'dialog' },
-        { label: escapeT('Page'), value: 'embed' },
+        { label: tExpr('Drawer'), value: 'drawer' },
+        { label: tExpr('Dialog'), value: 'dialog' },
+        { label: tExpr('Page'), value: 'embed' },
       ],
       'x-decorator': 'FormItem',
       'x-component': 'Radio.Group',
     },
     size: {
       type: 'string',
-      title: escapeT('Popup size'),
+      title: tExpr('Popup size'),
       enum: [
-        { label: escapeT('Small'), value: 'small' },
-        { label: escapeT('Medium'), value: 'medium' },
-        { label: escapeT('Large'), value: 'large' },
+        { label: tExpr('Small'), value: 'small' },
+        { label: tExpr('Medium'), value: 'medium' },
+        { label: tExpr('Large'), value: 'large' },
       ],
       'x-decorator': 'FormItem',
       'x-component': 'Radio.Group',
@@ -69,7 +77,7 @@ export const openView = defineAction({
     },
     uid: {
       type: 'string',
-      title: escapeT('Popup uid'),
+      title: tExpr('Popup uid'),
       required: true,
       'x-decorator': 'FormItem',
       'x-component': function UidInput(props) {
@@ -178,7 +186,7 @@ export const openView = defineAction({
     },
     dsAndCollection: {
       type: 'array',
-      title: escapeT('Data source / Collection'),
+      title: tExpr('Data source / Collection'),
       'x-decorator': 'FormItem',
       'x-component': function DSCollCascader(props) {
         const { disabled, placeholder } = props;
@@ -235,7 +243,7 @@ export const openView = defineAction({
     },
     dataSourceKey: {
       type: 'string',
-      title: escapeT('Data source key'),
+      title: tExpr('Data source key'),
       'x-decorator': 'FormItem',
       'x-component': function DSKeySelect(props) {
         const { value, onChange, disabled, placeholder } = props;
@@ -278,7 +286,7 @@ export const openView = defineAction({
     },
     collectionName: {
       type: 'string',
-      title: escapeT('Collection name'),
+      title: tExpr('Collection name'),
       'x-decorator': 'FormItem',
       'x-component': function CollNameSelect(props) {
         const { value, onChange, disabled, placeholder } = props;
@@ -326,7 +334,7 @@ export const openView = defineAction({
     },
     associationName: {
       type: 'string',
-      title: escapeT('Association name'),
+      title: tExpr('Association name'),
       'x-decorator': 'FormItem',
       'x-component': function AssociationSelect(props) {
         const { value, onChange, disabled, placeholder } = props;
@@ -392,7 +400,7 @@ export const openView = defineAction({
     },
     tabUid: {
       type: 'string',
-      title: escapeT('Tab uid'),
+      title: tExpr('Tab uid'),
       'x-decorator': 'FormItem',
       'x-component': 'Input',
       'x-reactions': {
@@ -405,7 +413,7 @@ export const openView = defineAction({
     },
     sourceId: {
       type: 'string',
-      title: escapeT('Source ID'),
+      title: tExpr('Source ID'),
       'x-decorator': 'FormItem',
       'x-component': function SourceIdVariable(props) {
         const ctx = useFlowSettingsContext();
@@ -464,7 +472,7 @@ export const openView = defineAction({
     },
     filterByTk: {
       type: 'string',
-      title: escapeT('Filter by TK'),
+      title: tExpr('Filter by TK'),
       'x-decorator': 'FormItem',
       'x-component': function FilterByTkVariable(props) {
         const ctx = useFlowSettingsContext();
@@ -535,6 +543,9 @@ export const openView = defineAction({
   },
   async handler(ctx: FlowModelContext, params) {
     // If uid differs from current model, delegate to ctx.openView to open that popup
+    const inputArgs = ctx.inputArgs || {};
+    const defineProperties = inputArgs.defineProperties ?? ctx.model.context?.inputArgs?.defineProperties ?? undefined;
+    const defineMethods = inputArgs.defineMethods ?? ctx.model.context?.inputArgs?.defineMethods ?? undefined;
     if (params?.uid && params.uid !== ctx.model.uid) {
       const actionDefaults = (ctx.model as any)?.getInputArgs?.() || {};
       // 外部弹窗时应该以弹窗发起者为高优先级
@@ -547,10 +558,12 @@ export const openView = defineAction({
         filterByTk: params.filterByTk ?? actionDefaults.filterByTk,
         sourceId: params.sourceId ?? actionDefaults.sourceId,
         tabUid: params.tabUid,
+        // 关键：把自定义上下文一并传递给 ctx.openView
+        ...(defineProperties ? { defineProperties } : {}),
+        ...(defineMethods ? { defineMethods } : {}),
       });
       return;
     }
-    const inputArgs = ctx.inputArgs || {};
 
     if (inputArgs.filterByTk === undefined && params.filterByTk !== undefined) {
       inputArgs.filterByTk = params.filterByTk;
@@ -564,7 +577,12 @@ export const openView = defineAction({
       inputArgs.tabUid = params.tabUid;
     }
 
-    const navigation = inputArgs.navigation ?? params.navigation;
+    let navigation = inputArgs.navigation ?? params.navigation;
+
+    // 传递了上下文就必须禁用路由，否则下次路由打开会缺少上下文
+    if (defineProperties || defineMethods) {
+      navigation = false;
+    }
 
     if (navigation !== false) {
       if (!ctx.inputArgs.navigation && ctx.view?.navigation) {
@@ -698,6 +716,13 @@ export const openView = defineAction({
               pageModel.context.defineProperty('closable', {
                 get: () => openMode !== 'embed',
               });
+
+              if (pageModel instanceof RootPageModel) {
+                // ctx.pageActive 是一个 observable.ref 对象，来自 RouteModel
+                pageModel.context.defineProperty('pageActive', {
+                  get: () => ctx.pageActive,
+                });
+              }
 
               Object.entries(defineProperties as Record<string, any>).forEach(([key, p]) => {
                 pageModel.context.defineProperty(key, p);

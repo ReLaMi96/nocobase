@@ -11,8 +11,12 @@ export * from './confirm';
 export * from './dataScope';
 export * from './openView';
 export * from './runjs';
+export * from './showMessage';
+export * from './showNotification';
+export * from './navigateToURL';
 export * from './customVariable';
 export * from './refreshTargetBlocks';
+export * from './setTargetDataScope';
 export { titleField } from './titleField';
 export * from './dateTimeFormat';
 export * from './sortingRules';
@@ -27,6 +31,7 @@ export * from './validation';
 export * from './columnFixed';
 export {
   fieldLinkageRules,
+  subFormFieldLinkageRules,
   detailsFieldLinkageRules,
   linkageSetDetailsFieldProps,
   actionLinkageRules,
@@ -34,8 +39,10 @@ export {
   linkageSetBlockProps,
   linkageSetActionProps,
   linkageSetFieldProps,
+  subFormLinkageSetFieldProps,
   linkageAssignField,
   linkageRunjs,
+  subFormLinkageAssignField,
 } from './linkageRules';
 export { displayFieldComponent } from './displayFieldComponent';
 export * from './overflowMode';

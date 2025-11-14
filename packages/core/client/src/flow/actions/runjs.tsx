@@ -7,13 +7,21 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ActionScene, defineAction, escapeT } from '@nocobase/flow-engine';
+import {
+  ActionScene,
+  defineAction,
+  tExpr,
+  createSafeWindow,
+  createSafeDocument,
+  createSafeNavigator,
+} from '@nocobase/flow-engine';
 import { CodeEditor } from '../components/code-editor';
 
 export const runjs = defineAction({
   name: 'runjs',
-  title: escapeT('Execute JavaScript'),
+  title: tExpr('Execute JavaScript'),
   scene: [ActionScene.DYNAMIC_EVENT_FLOW],
+  sort: 10000, // 排到最后
   uiSchema: {
     code: {
       type: 'string',
@@ -21,7 +29,6 @@ export const runjs = defineAction({
       'x-component-props': {
         enableLinter: true,
         height: '200px',
-        mode: 'runtime',
         scene: 'eventFlow',
       },
     },
@@ -30,6 +37,7 @@ export const runjs = defineAction({
     // 如果是 URL 触发的，则不执行代码
     if (ctx.inputArgs?.navigation) return;
 
-    ctx.runjs(params.code);
+    const navigator = createSafeNavigator();
+    ctx.runjs(params.code, { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator });
   },
 });

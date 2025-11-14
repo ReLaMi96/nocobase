@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { FilterFormCustomItemModel } from '../FilterFormCustomItemModel';
-import { escapeT, FieldModelRenderer, FormItem } from '@nocobase/flow-engine';
+import { tExpr, FieldModelRenderer, FormItem } from '@nocobase/flow-engine';
 import { FieldComponentProps } from './FieldComponentProps';
 import { debounce } from 'lodash';
 import { SourceCascader } from '../SourceCascader';
@@ -17,7 +17,8 @@ import { FieldModelSelect } from '../FieldModelSelect';
 import { uid } from '@nocobase/utils/client';
 
 export class FilterFormCustomFieldModel extends FilterFormCustomItemModel {
-  fieldModelInstance = null;
+  customFieldModelInstance = null;
+  customFieldProps = null;
 
   operator: string;
 
@@ -78,13 +79,13 @@ export class FilterFormCustomFieldModel extends FilterFormCustomItemModel {
   }
 
   render() {
-    if (!this.fieldModelInstance) {
+    if (!this.customFieldModelInstance) {
       return null;
     }
 
     return (
       <FormItem {...this.props} getValueProps={this.getValueProps.bind(this)}>
-        <FieldModelRenderer model={this.fieldModelInstance} />
+        <FieldModelRenderer model={this.customFieldModelInstance} />
       </FormItem>
     );
   }
@@ -97,22 +98,22 @@ FilterFormCustomFieldModel.define({
 
 FilterFormCustomFieldModel.registerFlow({
   key: 'formItemSettings',
-  title: escapeT('Form item settings'),
+  title: tExpr('Form item settings'),
   steps: {
     fieldSettings: {
       preset: true,
-      title: escapeT('Field settings'),
+      title: tExpr('Field settings'),
       uiSchema: {
         title: {
           type: 'string',
-          title: escapeT('Field title'),
+          title: tExpr('Field title'),
           'x-component': 'Input',
           'x-decorator': 'FormItem',
           required: true,
         },
         name: {
           type: 'string',
-          title: escapeT('Field name'),
+          title: tExpr('Field name'),
           'x-component': 'Input',
           'x-decorator': 'FormItem',
           required: true,
@@ -121,17 +122,17 @@ FilterFormCustomFieldModel.registerFlow({
         },
         source: {
           type: 'array',
-          title: escapeT('Field source'),
+          title: tExpr('Field source'),
           'x-decorator': 'FormItem',
           'x-component': SourceCascader,
           'x-component-props': {
-            placeholder: escapeT('Select a source field to use metadata of the field'),
+            placeholder: tExpr('Select a source field to use metadata of the field'),
           },
-          description: escapeT('Select a source field to use metadata of the field'),
+          description: tExpr('Select a source field to use metadata of the field'),
         },
         fieldModel: {
           type: 'string',
-          title: escapeT('Field model'),
+          title: tExpr('Field model'),
           'x-component': FieldModelSelect,
           'x-decorator': 'FormItem',
           required: true,
@@ -145,7 +146,7 @@ FilterFormCustomFieldModel.registerFlow({
             { label: 'Record select', value: 'RecordSelectFieldModel' },
           ],
           'x-component-props': {
-            placeholder: escapeT('Please select'),
+            placeholder: tExpr('Please select'),
           },
           'x-reactions': [
             {
@@ -162,7 +163,7 @@ FilterFormCustomFieldModel.registerFlow({
         },
         fieldModelProps: {
           type: 'object',
-          title: escapeT('Component properties'),
+          title: tExpr('Component properties'),
           'x-component': FieldComponentProps,
           'x-reactions': [
             {
@@ -191,13 +192,13 @@ FilterFormCustomFieldModel.registerFlow({
           name: name,
         });
 
-        if (!ctx.model.fieldModelInstance) {
-          ctx.model.fieldModelInstance = ctx.model.flowEngine.createModel({
+        if (!ctx.model.customFieldModelInstance) {
+          ctx.model.customFieldModelInstance = ctx.model.flowEngine.createModel({
             use: fieldModel,
             props: { allowClear: true, ...fieldModelProps },
           });
         } else {
-          ctx.model.fieldModelInstance.setProps({ allowClear: true, ...fieldModelProps });
+          ctx.model.customFieldModelInstance.setProps({ allowClear: true, ...fieldModelProps });
         }
 
         if (fieldModel === 'DateTimeFilterFieldModel' && fieldModelProps.isRange) {
@@ -205,10 +206,26 @@ FilterFormCustomFieldModel.registerFlow({
         } else {
           ctx.model.operator = undefined;
         }
+
+        ctx.model.customFieldProps = fieldModelProps;
       },
     },
     connectFields: {
       use: 'connectFields',
+    },
+    initialValue: {
+      title: tExpr('Default value'),
+      uiSchema: (ctx) => {
+        return {
+          defaultValue: {
+            'x-component': 'DefaultValue',
+            'x-decorator': 'FormItem',
+          },
+        };
+      },
+      handler(ctx, params) {
+        ctx.model.setProps({ initialValue: params.defaultValue });
+      },
     },
   },
 });

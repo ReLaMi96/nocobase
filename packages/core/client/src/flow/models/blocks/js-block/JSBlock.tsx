@@ -7,7 +7,14 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ElementProxy, escapeT, createSafeDocument, createSafeWindow } from '@nocobase/flow-engine';
+import {
+  ElementProxy,
+  tExpr,
+  createSafeDocument,
+  createSafeWindow,
+  createSafeNavigator,
+  compileRunJs,
+} from '@nocobase/flow-engine';
 import { Card } from 'antd';
 import React from 'react';
 import { BlockModel } from '../../base';
@@ -38,7 +45,7 @@ export class JSBlockModel extends BlockModel {
 }
 
 JSBlockModel.define({
-  label: escapeT('JS block'),
+  label: tExpr('JS block'),
   createModelOptions: {
     use: 'JSBlockModel',
   },
@@ -49,7 +56,7 @@ JSBlockModel.registerFlow({
   title: 'JavaScript settings',
   steps: {
     runJs: {
-      title: escapeT('Write JavaScript'),
+      title: tExpr('Write JavaScript'),
       uiSchema: {
         code: {
           type: 'string',
@@ -142,13 +149,19 @@ ctx.element.innerHTML = \`
 \`;`.trim(),
         };
       },
-      handler(ctx, params) {
+      async handler(ctx, params) {
         const { code, version } = resolveRunJsParams(ctx, params);
         ctx.onRefReady(ctx.ref, async (element) => {
           ctx.defineProperty('element', {
             get: () => new ElementProxy(element),
           });
-          await ctx.runjs(code, { window: createSafeWindow(), document: createSafeDocument() }, { version });
+          const navigator = createSafeNavigator();
+          const compiled = await compileRunJs(code);
+          await ctx.runjs(
+            compiled,
+            { window: createSafeWindow({ navigator }), document: createSafeDocument(), navigator },
+            { version },
+          );
         });
       },
     },

@@ -7,7 +7,8 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { buildWrapperFieldChildren, escapeT, FlowModel, FlowModelContext } from '@nocobase/flow-engine';
+import { tExpr, FlowModel, FlowModelContext } from '@nocobase/flow-engine';
+import { buildFormAssociationChildren, buildJSFieldMenuChildren } from '../utils/transformChildrenToJS';
 
 /**
  * “JavaScript 字段（可编辑）”菜单入口（表单）：
@@ -17,20 +18,20 @@ import { buildWrapperFieldChildren, escapeT, FlowModel, FlowModelContext } from 
  */
 export class FormJSFieldItemModel extends FlowModel {
   static defineChildren(ctx: FlowModelContext) {
-    const groups = buildWrapperFieldChildren(ctx, {
+    return buildJSFieldMenuChildren(ctx, {
       useModel: 'FormItemModel',
       fieldUseModel: 'JSEditableFieldModel',
-      associationPathName: (ctx as any).prefixFieldPath,
+      associationPathName: ctx.prefixFieldPath,
       refreshTargets: ['FormItemModel', 'FilterFormItemModel'],
+      associationProvider: buildFormAssociationChildren,
     });
-    return groups?.[0]?.children || [];
   }
 }
 
 FormJSFieldItemModel.define({
-  label: escapeT('JS field'),
+  label: tExpr('JS field'),
   searchable: true,
-  searchPlaceholder: escapeT('Search fields'),
+  searchPlaceholder: tExpr('Search fields'),
   menuType: 'submenu',
   sort: 110,
 });

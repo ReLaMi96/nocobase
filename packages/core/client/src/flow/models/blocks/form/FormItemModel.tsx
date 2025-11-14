@@ -11,7 +11,7 @@ import {
   Collection,
   DefaultStructure,
   EditableItemModel,
-  escapeT,
+  tExpr,
   FieldModelRenderer,
   FlowModelContext,
   FormItem,
@@ -22,6 +22,8 @@ import { SelectOptions } from '../../../actions/titleField';
 import { FieldModel } from '../../base';
 import { DetailsItemModel } from '../details/DetailsItemModel';
 import { EditFormModel } from './EditFormModel';
+import _ from 'lodash';
+import { coerceForToOneField } from '../../../internal/utils/associationValueCoercion';
 
 const interfacesOfUnsupportedDefaultValue = [
   'o2o',
@@ -118,39 +120,47 @@ export class FormItemModel<T extends DefaultStructure = DefaultStructure> extend
     const fieldModel = this.subModels.field as FieldModel;
     // 行索引（来自数组子表单）
     const idx = this.context.fieldIndex;
+    const fieldKey = this.context.fieldKey;
+    const parentFieldPathArray = this.parent?.context.fieldPathArray || [];
 
     // 嵌套场景下继续传透，为字段子模型创建 fork
     const modelForRender =
       idx != null
         ? (() => {
-            const fork = fieldModel.createFork({}, `${idx}`);
+            const fork = fieldModel.createFork({}, `${fieldKey}`);
             fork.context.defineProperty('fieldIndex', {
               get: () => idx,
+            });
+            fork.context.defineProperty('fieldKey', {
+              get: () => fieldKey,
             });
             return fork;
           })()
         : fieldModel;
-    const namePath = buildDynamicName(this.props.name, idx);
+    const fieldPath = buildDynamicName(this.props.name, idx);
+    this.context.defineProperty('fieldPathArray', {
+      value: [...parentFieldPathArray, ..._.castArray(fieldPath)],
+    });
     return (
-      <FormItem {...this.props} name={namePath}>
-        <FieldModelRenderer model={modelForRender} name={namePath} />
+      <FormItem {...this.props} name={fieldPath} validateFirst={true}>
+        <FieldModelRenderer model={modelForRender} name={fieldPath} />
       </FormItem>
     );
   }
 }
 
 FormItemModel.define({
-  label: escapeT('Display collection fields'),
+  label: tExpr('Display collection fields'),
   sort: 100,
 });
 
 FormItemModel.registerFlow({
   key: 'editItemSettings',
   sort: 300,
-  title: escapeT('Form item settings'),
+  title: tExpr('Form item settings'),
   steps: {
     label: {
-      title: escapeT('Label'),
+      title: tExpr('Label'),
       uiSchema: (ctx) => {
         return {
           label: {
@@ -190,14 +200,14 @@ FormItemModel.registerFlow({
     },
 
     showLabel: {
-      title: escapeT('Show label'),
+      title: tExpr('Show label'),
       uiSchema: {
         showLabel: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -209,7 +219,7 @@ FormItemModel.registerFlow({
       },
     },
     tooltip: {
-      title: escapeT('Tooltip'),
+      title: tExpr('Tooltip'),
       uiSchema: {
         tooltip: {
           'x-component': 'Input.TextArea',
@@ -221,7 +231,7 @@ FormItemModel.registerFlow({
       },
     },
     description: {
-      title: escapeT('Description'),
+      title: tExpr('Description'),
       uiSchema: {
         description: {
           'x-component': 'Input.TextArea',
@@ -236,13 +246,9 @@ FormItemModel.registerFlow({
       },
     },
     initialValue: {
-      title: escapeT('Default value'),
+      title: tExpr('Default value'),
       uiSchema: (ctx) => {
         if (ctx.model.parent.parent instanceof EditFormModel) {
-          return;
-        }
-        // 在子表单/子表格内，不提供默认值设置（检测父级为关联子容器：SubForm/SubTable）
-        if ((ctx.model.parent?.parent as any)?.updateAssociation) {
           return;
         }
         // 当前字段组件本身为 SubForm/SubTable 时，也不提供默认值设置
@@ -278,27 +284,29 @@ FormItemModel.registerFlow({
         if (interfacesOfUnsupportedDefaultValue?.includes?.(iface)) {
           return;
         }
-        ctx.model.setProps({ initialValue: params.defaultValue });
+        const collectionField = ctx.model.collectionField;
+        const finalDefault = coerceForToOneField(collectionField, params.defaultValue);
+        ctx.model.setProps({ initialValue: finalDefault });
       },
     },
+    validation: {
+      title: tExpr('Validation'),
+      use: 'validation',
+    },
     required: {
-      title: escapeT('Required'),
+      title: tExpr('Required'),
       use: 'required',
     },
 
     model: {
       use: 'fieldComponent',
-      title: escapeT('Field component'),
+      title: tExpr('Field component'),
     },
     pattern: {
-      title: escapeT('Display mode'),
+      title: tExpr('Display mode'),
       use: 'pattern',
     },
 
-    validation: {
-      title: escapeT('Validation'),
-      use: 'validation',
-    },
     fieldNames: {
       use: 'titleField',
       uiSchema: async (ctx) => {

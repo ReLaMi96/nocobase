@@ -11,10 +11,9 @@ import {
   buildSubModelItems,
   Collection,
   CollectionField,
-  createCollectionContextMeta,
   DataSource,
   DefaultStructure,
-  escapeT,
+  tExpr,
   FlowModelContext,
   MultiRecordResource,
   SingleRecordResource,
@@ -34,6 +33,10 @@ export interface ResourceSettingsInitParams {
 
 export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T> {
   isManualRefresh = false;
+
+  onActive() {
+    this.resource?.refresh();
+  }
 
   /**
    * 子菜单过滤函数
@@ -73,7 +76,7 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
           key: genKey(`ds-${dataSource.key}`),
           label: dataSource.displayName,
           searchable: true,
-          searchPlaceholder: escapeT('Search'),
+          searchPlaceholder: tExpr('Search'),
           children: (ctx) => {
             return dataSource
               .getCollections()
@@ -284,10 +287,6 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
         const params = this.getResourceSettingsInitParams();
         return this.context.dataSourceManager.getCollection(params.dataSourceKey, params.collectionName);
       },
-      meta: createCollectionContextMeta(() => {
-        const params = this.getResourceSettingsInitParams();
-        return this.context.dataSourceManager.getCollection(params.dataSourceKey, params.collectionName);
-      }, this.context.t('Current collection')),
     });
     this.context.defineProperty('resource', {
       get: () => {
@@ -347,6 +346,9 @@ export class CollectionBlockModel<T = DefaultStructure> extends DataBlockModel<T
       const associationField = this.context.dataSourceManager.getCollectionField(
         `${this.collection.dataSourceKey}.${this.collection.name}.${field1}`,
       ) as CollectionField;
+      if (!associationField) {
+        return;
+      }
       const targetCollectionName = associationField.target;
       const collectionField = this.context.dataSourceManager.getCollectionField(
         `${this.collection.dataSourceKey}.${targetCollectionName}.${field2}`,

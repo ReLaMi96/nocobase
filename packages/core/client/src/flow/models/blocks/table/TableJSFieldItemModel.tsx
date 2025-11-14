@@ -7,9 +7,10 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { buildWrapperFieldChildren, escapeT, FlowModelContext } from '@nocobase/flow-engine';
-import { TableColumnModel } from './TableColumnModel';
+import { tExpr, FlowModelContext, type SubModelItem } from '@nocobase/flow-engine';
+import { TableAssociationFieldGroupModel } from './TableAssociationFieldGroupModel';
 import { TableCustomColumnModel } from './TableCustomColumnModel';
+import { buildJSFieldMenuChildren } from '../utils/transformChildrenToJS';
 
 /**
  * “JavaScript 字段”菜单入口（表格）：
@@ -19,19 +20,19 @@ import { TableCustomColumnModel } from './TableCustomColumnModel';
  */
 export class TableJSFieldItemModel extends TableCustomColumnModel {
   static defineChildren(ctx: FlowModelContext) {
-    const groups = buildWrapperFieldChildren(ctx, {
+    return buildJSFieldMenuChildren(ctx, {
       useModel: 'TableColumnModel',
       fieldUseModel: 'JSFieldModel',
       refreshTargets: ['TableColumnModel'],
+      associationProvider: (inner) => TableAssociationFieldGroupModel.defineChildren(inner) as SubModelItem[],
     });
-    return groups?.[0]?.children || [];
   }
 }
 
 TableJSFieldItemModel.define({
-  label: escapeT('JS field'),
+  label: tExpr('JS field'),
   searchable: true,
-  searchPlaceholder: escapeT('Search fields'),
+  searchPlaceholder: tExpr('Search fields'),
   // 提高排序到“字段类”列表的靠前位置，但不抢默认项
   sort: 110,
 });

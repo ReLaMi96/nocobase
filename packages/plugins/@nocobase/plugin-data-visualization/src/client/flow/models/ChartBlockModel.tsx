@@ -7,15 +7,13 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { useForm } from '@formily/react';
-import { ChildPageModel, DataBlockModel } from '@nocobase/client';
-import { createCollectionContextMeta, escapeT, SQLResource, useFlowContext } from '@nocobase/flow-engine';
+import { ChildPageModel, DataBlockModel, DEFAULT_DATA_SOURCE_KEY } from '@nocobase/client';
+import { createCollectionContextMeta, SQLResource, useFlowContext } from '@nocobase/flow-engine';
 import React, { createRef } from 'react';
 import _ from 'lodash';
-import { Button, Badge } from 'antd';
+import { Button } from 'antd';
 import { useT, tStr } from '../../locale';
-import { EyeOutlined } from '@ant-design/icons';
-import { convertDatasetFormats, sleep } from '../utils';
+import { convertDatasetFormats, sleep, debugLog } from '../utils';
 import { Chart, ChartOptions } from './Chart';
 import { ConfigPanel } from './ConfigPanel';
 import { ChartResource } from '../resources/ChartResource';
@@ -45,6 +43,10 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
 
   // 统一管理 refresh 监听引用，便于 off 解绑
   private __onResourceRefresh = () => this.renderChart();
+
+  onActive() {
+    this.resource.refresh();
+  }
 
   // 初始化注册 ChartResource | SQLResource
   initResource(mode = 'builder') {
@@ -117,7 +119,8 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
       const initParams = this.getResourceSettingsInitParams();
       const initQuery = initParams?.query;
       if (initQuery) {
-        this.applyQuery(initQuery);
+        // 初始化场景：禁用 debug，使 SQLResource.refresh() 走 runById
+        this.applyQuery(initQuery, { debug: false });
         // 依赖 refresh 事件驱动渲染
         await this.resource.refresh();
       }
@@ -193,13 +196,18 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
   }
 
   // 应用数据查询配置（仅设置，不负责渲染）
-  applyQuery(query: any) {
+  applyQuery(query: any, options?: { debug?: boolean }) {
     this.checkResource(query);
     if (query?.mode === 'sql') {
-      (this.resource as SQLResource).setDebug(true);
+      // SQL 模式下设置数据源 key（默认 main）
+      const dsKey = query?.sqlDatasource || DEFAULT_DATA_SOURCE_KEY;
+      (this.resource as SQLResource).setDataSourceKey(dsKey);
+
+      // 默认开启 debug（预览、交互）；初始化时传入 { debug: false } 使用 runById
+      (this.resource as SQLResource).setDebug(options?.debug ?? true);
       (this.resource as SQLResource).setSQL(query.sql);
     } else {
-      console.log('---applyQuery', query);
+      debugLog('---applyQuery', query);
       (this.resource as ChartResource).setQueryParams(query);
     }
   }
@@ -219,12 +227,16 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
   // 应用图表配置（仅设置，不负责渲染）
   async applyChartOptions(payload: { mode: 'basic' | 'custom'; builder?: any; raw?: string }) {
     const optionRaw = payload.mode === 'basic' ? genRawByBuilder(payload.builder) : payload.raw;
-    const { value: option } = await this.context.runjs(optionRaw);
+    const { success, value, error, timeout } = await this.context.runjs(optionRaw);
+    if (!success && error) {
+      console.error('applyChartOptions runjs error:', error);
+      return;
+    }
     this.setProps({
       chart: {
         ...this.props.chart,
         optionRaw, // js文本
-        option, // js对象
+        option: value, // js对象
       },
     });
   }
@@ -232,15 +244,15 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
   // 应用事件配置（仅设置，不负责渲染）
   async applyEvents(raw?: string) {
     if (!raw) return;
-    return new Promise<void>((resolve, reject) => {
-      this.context.onRefReady(this.context.chartRef, async () => {
-        try {
-          await this.context.runjs(raw, { chart: (this.context.chartRef as any).current });
-          resolve();
-        } catch (e) {
-          reject(e);
-        }
+
+    this.context.onRefReady(this.context.chartRef, async () => {
+      const { success, value, error, timeout } = await this.context.runjs(raw, {
+        chart: (this.context.chartRef as any).current,
       });
+      if (!success && error) {
+        console.error('applyEvents runjs error:', error);
+        return;
+      }
     });
   }
 
@@ -251,7 +263,7 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
 
   // 预览，暂存预览前的 stepParams，并刷新图表
   async onPreview(params: { query: any; chart: any }, needQueryData?: boolean) {
-    console.log('---onPreview', params.query);
+    debugLog('---onPreview', params.query);
     const values = _.cloneDeep(params);
     if (!values) return;
 
@@ -264,7 +276,7 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
 
     if (needQueryData) {
       // 等待确保 stepParams 已更新
-      await sleep(100);
+      await sleep(200);
       // 刷新请求数据
       await this.resource.refresh();
       this.setDataResult(); // 写入结果，用于展示数据，并联动更新 column 配置
@@ -287,9 +299,7 @@ export class ChartBlockModel extends DataBlockModel<ChartBlockModelStructure> {
 const PreviewButton = ({ style }) => {
   const t = useT();
   const ctx = useFlowContext();
-  const form = useForm();
   return (
-    // <Badge dot offset={[-8, 2]}>
     <Button
       color="primary"
       variant="outlined"
@@ -298,12 +308,11 @@ const PreviewButton = ({ style }) => {
         // 这里通过普通的 form.values 拿不到数据
         const formValues = ctx.getStepFormValues('chartSettings', 'configure');
         // 写入配置参数，统一走 onPreview 方便回滚
-        await ctx.model.onPreview(formValues);
+        await ctx.model.onPreview(formValues, true);
       }}
     >
       {t('Preview')}
     </Button>
-    // </Badge>
   );
 };
 
@@ -338,7 +347,7 @@ ChartBlockModel.registerFlow({
       uiMode: {
         type: 'embed',
         props: {
-          // minWidth: '510px', // 最小宽度 支持 measures field 完整展示 6 个字不换行
+          minWidth: '400px',
           footer: (originNode, { OkBtn }) => (
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
               <CancelButton style={{ marginRight: 6 }} />
@@ -360,6 +369,7 @@ ChartBlockModel.registerFlow({
           return ctx.sql.save({
             uid: ctx.model.uid,
             sql: params.query.sql,
+            dataSourceKey: params.query.sqlDatasource,
           });
         }
       },
@@ -376,14 +386,20 @@ ChartBlockModel.registerFlow({
           },
         };
       },
+      useRawParams: true, // 不默认解析配置里的变量
       async handler(ctx, params) {
-        console.log('---setting flow handler', params);
-        const { query, chart } = params;
+        debugLog('---setting flow handler', params);
+        let { query } = params;
+        const { chart } = params;
         if (!query || !chart) {
           return;
         }
         try {
           // 数据部分
+          if (query.mode !== 'sql') {
+            // builder 模式下变量解析；sql 模式下交给 sqlResource 处理解析
+            query = await ctx.resolveJsonTemplate(query);
+          }
           ctx.model.applyQuery(query);
 
           // 图表部分

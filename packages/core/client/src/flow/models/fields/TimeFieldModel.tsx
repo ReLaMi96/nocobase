@@ -9,45 +9,42 @@
 import { dayjsable, formatDayjsValue } from '@formily/antd-v5/esm/__builtins__';
 import { TimePicker } from 'antd';
 import React from 'react';
-import { EditableItemModel, FilterableItemModel, escapeT } from '@nocobase/flow-engine';
+import { EditableItemModel, FilterableItemModel, tExpr } from '@nocobase/flow-engine';
 import dayjs from 'dayjs';
 import { FieldModel } from '../base';
 
-export class TimeFieldModel extends FieldModel {
-  setProps(props) {
-    const format = props['format'] || 'HH:mm:ss';
-    const onChange = props.onChange;
-    const componentProps = {
-      ...props,
-      picker: 'time',
-      format,
-      inputReadOnly: true,
-      value: dayjsable(props.value, 'HH:mm:ss'),
-      onChange: (value: dayjs.Dayjs | dayjs.Dayjs[]) => {
-        if (onChange) {
-          onChange(formatDayjsValue(value, 'HH:mm:ss') || null);
-        }
-      },
-    };
-    super.setProps({
-      ...props,
-      ...componentProps,
-    });
-  }
+const TimePickerCom = (props) => {
+  const format = props['format'] || 'HH:mm:ss';
+  const onChange = props.onChange;
+  const componentProps = {
+    ...props,
+    picker: 'time',
+    format,
+    inputReadOnly: true,
+    value: dayjsable(props.value, 'HH:mm:ss'),
+    onChange: (value: dayjs.Dayjs | dayjs.Dayjs[]) => {
+      if (onChange) {
+        onChange(formatDayjsValue(value, 'HH:mm:ss') || null);
+      }
+    },
+  };
+  return <TimePicker {...componentProps} />;
+};
 
+export class TimeFieldModel extends FieldModel {
   render() {
-    return <TimePicker {...this.props} style={{ width: '100%' }} />;
+    return <TimePickerCom {...this.props} style={{ width: '100%' }} />;
   }
 }
 
 TimeFieldModel.registerFlow({
   key: 'timeSettings',
   sort: 3000,
-  title: escapeT('Time settings'),
+  title: tExpr('Time settings'),
   steps: {
     dateFormat: {
       use: 'dateDisplayFormat',
-      title: escapeT('Time format'),
+      title: tExpr('Time format'),
     },
   },
 });

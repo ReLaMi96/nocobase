@@ -8,7 +8,7 @@
  */
 
 import { PlusOutlined } from '@ant-design/icons';
-import { AddSubModelButton, FlowSettingsButton, DragOverlayConfig } from '@nocobase/flow-engine';
+import { AddSubModelButton, DragOverlayConfig, FlowSettingsButton } from '@nocobase/flow-engine';
 import React from 'react';
 import { FilterManager } from '../blocks/filter-manager/FilterManager';
 import { GridModel } from './GridModel';
@@ -44,7 +44,7 @@ export class BlockGridModel extends GridModel {
     const inputArgs = this.context.view?.inputArgs ?? {};
     if (inputArgs.collectionName && !inputArgs.filterByTk) {
       // 新增记录的场景，需要移除掉 筛选区块
-      return ['DataBlockModel', 'BlockModel'];
+      return ['DataBlockModel', 'FilterBlockModel', 'BlockModel'];
     }
     return ['DataBlockModel', 'FilterBlockModel', 'BlockModel'];
   }
@@ -68,7 +68,11 @@ export class BlockGridModel extends GridModel {
   }
 
   render() {
-    return <div style={{ padding: this.context.themeToken.marginBlock }}>{super.render()}</div>;
+    return (
+      <div style={{ padding: this.context.isMobileLayout ? 8 : this.context.themeToken.marginBlock }}>
+        {super.render()}
+      </div>
+    );
   }
 }
 
@@ -77,7 +81,7 @@ BlockGridModel.registerFlow({
   steps: {
     grid: {
       handler(ctx, params) {
-        ctx.model.setProps('rowGap', ctx.themeToken.marginBlock);
+        ctx.model.setProps('rowGap', ctx.isMobileLayout ? 12 : ctx.themeToken.marginBlock);
         ctx.model.setProps('colGap', ctx.themeToken.marginBlock);
       },
     },

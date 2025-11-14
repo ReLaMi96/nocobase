@@ -10,6 +10,7 @@
 import { ISchema } from '@formily/json-schema';
 import { SubModelItem } from './components';
 import { FlowContext, FlowModelContext, FlowRuntimeContext, FlowSettingsContext } from './flowContext';
+import type { PropertyOptions } from './flowContext';
 import type { FlowEngine } from './flowEngine';
 import type { FlowModel } from './models';
 import { FilterGroupOptions } from './resources';
@@ -134,6 +135,8 @@ export enum ActionScene {
   BLOCK_LINKAGE_RULES = 1,
   /** 表单字段级联动规则可用 */
   FIELD_LINKAGE_RULES,
+  /** 子表单字段级联动规则可用 */
+  SUB_FORM_FIELD_LINKAGE_RULES,
   /** 详情字段级联动规则可用 */
   DETAILS_FIELD_LINKAGE_RULES,
   /** 按钮级联动规则可用 */
@@ -157,6 +160,26 @@ export interface ActionDefinition<TModel extends FlowModel = FlowModel, TCtx ext
   uiMode?: StepUIMode | ((ctx: FlowRuntimeContext<TModel>) => StepUIMode | Promise<StepUIMode>);
   scene?: ActionScene | ActionScene[];
   sort?: number;
+  /**
+   * 在执行 Action 前为 ctx 定义临时属性。
+   * - 仅支持 PropertyOptions 形态（例如：{ foo: { value: 5 } }）；
+   * - 或函数形式（接收 ctx，返回 PropertyOptions 对象；支持 Promise）。
+   */
+  defineProperties?:
+    | Record<string, PropertyOptions>
+    | ((ctx: TCtx) => Record<string, PropertyOptions> | Promise<Record<string, PropertyOptions>>);
+  /**
+   * 在执行 Action 前为 ctx 定义临时方法。
+   * - 支持 JSON 形式（对象的值应为函数）
+   * - 或函数形式（接收 ctx，返回方法对象；支持 Promise）
+   */
+  defineMethods?:
+    | Record<string, (this: TCtx, ...args: any[]) => any>
+    | ((
+        ctx: TCtx,
+      ) =>
+        | Record<string, (this: TCtx, ...args: any[]) => any>
+        | Promise<Record<string, (this: TCtx, ...args: any[]) => any>>);
 }
 
 /**
@@ -310,6 +333,7 @@ export interface IFlowModelRepository<T extends FlowModel = FlowModel> {
   save(model: T, options?: { onlyStepParams?: boolean }): Promise<Record<string, any>>;
   destroy(uid: string): Promise<boolean>;
   move(sourceId: string, targetId: string, position: 'before' | 'after'): Promise<void>;
+  duplicate(uid: string): Promise<Record<string, any> | null>;
 }
 
 /**

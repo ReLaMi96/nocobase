@@ -19,6 +19,7 @@ import {
   FlowDefinition,
   FlowStep,
   FlowStepContext,
+  isBeforeRenderFlow,
 } from '@nocobase/flow-engine';
 import { Collapse, Input, Button, Space, Tooltip, Empty, Dropdown, Select } from 'antd';
 import { uid } from '@formily/shared';
@@ -53,12 +54,97 @@ export const DynamicFlowsIcon: React.FC<{ model: FlowModel }> = (props) => {
   return <ThunderboltOutlined style={{ cursor: 'pointer' }} onClick={handleClick} />;
 };
 
+// 事件配置组件 - 独立的 observer 组件确保响应式更新
+const EventConfigSection = observer(
+  ({ flow, model, flowEngine }: { flow: FlowDefinition; model: FlowModel; flowEngine: any }) => {
+    const ctx = useFlowContext();
+    const t = model.translate.bind(model);
+    const refresh = useUpdate();
+
+    const eventName = (flow.on as any)?.eventName;
+    const uiSchema = model.getEvent(eventName)?.uiSchema;
+    const eventUiSchema = typeof uiSchema === 'function' ? uiSchema(ctx) : uiSchema;
+    const eventDefaultParams = (flow.on as any)?.defaultParams;
+
+    const getEventList = () => {
+      return [...model.getEvents().values()].map((event) => ({ label: t(event.title), value: event.name }));
+    };
+
+    return (
+      <div style={{ marginBottom: 32 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: 16,
+            paddingBottom: 8,
+            borderBottom: '1px solid #f0f0f0',
+          }}
+        >
+          <div
+            style={{
+              width: '4px',
+              height: '16px',
+              backgroundColor: '#1890ff',
+              borderRadius: '2px',
+              marginRight: 8,
+            }}
+          ></div>
+          <h4
+            style={{
+              margin: 0,
+              fontSize: 14,
+              fontWeight: 500,
+              color: '#262626',
+            }}
+          >
+            {t('Event')}
+          </h4>
+        </div>
+        <div style={{ paddingLeft: 12 }}>
+          {/* 触发事件 */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500, color: '#262626' }}>
+              {t('Trigger event')}
+              <span style={{ marginInlineStart: 2, marginInlineEnd: 8 }}>:</span>
+            </div>
+            <Select
+              placeholder={t('Select trigger event')}
+              style={{ width: '100%' }}
+              value={eventName}
+              onChange={(value) => {
+                if (!flow.on) {
+                  flow.on = { eventName: value } as any;
+                } else {
+                  (flow.on as any).eventName = value;
+                }
+                refresh();
+              }}
+              options={getEventList()}
+            />
+          </div>
+
+          {eventName &&
+            flowEngine.flowSettings.renderStepForm({
+              key: eventName,
+              uiSchema: eventUiSchema,
+              initialValues: eventDefaultParams,
+              flowEngine,
+              onFormValuesChange: (form: any) => {
+                _.set(flow, 'on.defaultParams', form.values);
+              },
+            })}
+        </div>
+      </div>
+    );
+  },
+);
+
 const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
   const { model } = props;
   const ctx = useFlowContext();
   const flowEngine = model.flowEngine;
   const [submitLoading, setSubmitLoading] = React.useState(false);
-  const refresh = useUpdate();
   const t = model.translate.bind(model);
 
   // 创建新流的默认值
@@ -74,7 +160,7 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
 
   // 删除流
   const handleDeleteFlow = (flow: FlowDefinition) => {
-    flow.destroy();
+    flow.remove();
   };
 
   // 上移流
@@ -118,13 +204,13 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
 
   // 获取可用的动作类型
   const getActionList = () => {
-    return [...model.getActions().values()].filter((action) =>
-      _.castArray(action.scene).includes(ActionScene.DYNAMIC_EVENT_FLOW),
-    );
-  };
-
-  const getEventList = () => {
-    return [...model.getEvents().values()].map((event) => ({ label: t(event.title), value: event.name }));
+    return [...model.getActions().values()]
+      .filter((action) => _.castArray(action.scene).includes(ActionScene.DYNAMIC_EVENT_FLOW))
+      .sort((a, b) => {
+        const sortA = a.sort ?? 0;
+        const sortB = b.sort ?? 0;
+        return sortA - sortB;
+      });
   };
 
   // 添加步骤
@@ -194,10 +280,6 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
 
   // 生成折叠面板项
   const collapseItems = model.flowRegistry.mapFlows((flow) => {
-    const eventName = (flow.on as any)?.eventName;
-    const eventUiSchema = model.getEvent(eventName)?.uiSchema;
-    const eventDefaultParams = (flow.on as any)?.defaultParams;
-
     return {
       key: flow.key,
       label: renderPanelHeader(flow),
@@ -210,71 +292,7 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
       children: (
         <div>
           {/* 事件部分 */}
-          <div style={{ marginBottom: 32 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginBottom: 16,
-                paddingBottom: 8,
-                borderBottom: '1px solid #f0f0f0',
-              }}
-            >
-              <div
-                style={{
-                  width: '4px',
-                  height: '16px',
-                  backgroundColor: '#1890ff',
-                  borderRadius: '2px',
-                  marginRight: 8,
-                }}
-              ></div>
-              <h4
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  color: '#262626',
-                }}
-              >
-                {t('Event')}
-              </h4>
-            </div>
-            <div style={{ paddingLeft: 12 }}>
-              {/* 触发事件 */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500, color: '#262626' }}>
-                  {t('Trigger event')}
-                  <span style={{ marginInlineStart: 2, marginInlineEnd: 8 }}>:</span>
-                </div>
-                <Select
-                  placeholder={t('Select trigger event')}
-                  style={{ width: '100%' }}
-                  value={(flow.on as any)?.eventName}
-                  onChange={(value) => {
-                    if (!flow.on) {
-                      flow.on = { eventName: value } as any;
-                    } else {
-                      (flow.on as any).eventName = value;
-                    }
-                    refresh();
-                  }}
-                  options={getEventList()}
-                />
-              </div>
-
-              {/* 触发条件 */}
-              {eventName &&
-                flowEngine.flowSettings.renderStepForm({
-                  uiSchema: eventUiSchema,
-                  initialValues: eventDefaultParams,
-                  flowEngine,
-                  onFormValuesChange: (form: any) => {
-                    _.set(flow, 'on.defaultParams', form.values);
-                  },
-                })}
-            </div>
-          </div>
+          <EventConfigSection flow={flow} model={model} flowEngine={flowEngine} />
 
           {/* 步骤部分 */}
           <div>
@@ -332,7 +350,7 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
                           marginBottom: '8px',
                         }}
                       >
-                        <span style={{ fontWeight: 500, color: '#262626' }}>
+                        <span style={{ fontWeight: 600, color: '#262626' }}>
                           {t(actionDef.title)}
                           <span style={{ marginInlineStart: 2, marginInlineEnd: 8 }}>:</span>
                         </span>
@@ -450,6 +468,17 @@ const DynamicFlowsEditor = observer((props: { model: FlowModel }) => {
           onClick={async () => {
             setSubmitLoading(true);
             await model.flowRegistry.save();
+            // 保存事件流定义后，失效 beforeRender 缓存并触发一次重跑，确保改动立刻生效
+            const beforeRenderFlows = model.flowRegistry
+              .mapFlows((flow) => {
+                if (isBeforeRenderFlow(flow)) {
+                  return flow;
+                }
+              })
+              .filter(Boolean);
+            if (beforeRenderFlows.length > 0) {
+              model.rerender(); // 不阻塞，后续保存
+            }
             setSubmitLoading(false);
             model.context?.message?.success?.(t('Configuration saved'));
             ctx.view.destroy();

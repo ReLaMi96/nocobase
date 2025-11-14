@@ -10,12 +10,12 @@
 import {
   Collection,
   DisplayItemModel,
-  escapeT,
+  tExpr,
   FieldModelRenderer,
   FlowModelContext,
   FormItem,
 } from '@nocobase/flow-engine';
-import { get } from 'lodash';
+import { get, castArray } from 'lodash';
 import React from 'react';
 import { FieldModel } from '../../base';
 import { DetailsGridModel } from './DetailsGridModel';
@@ -26,7 +26,8 @@ import { DetailsGridModel } from './DetailsGridModel';
  * @param fieldPath 字段路径 (如 "o2m_aa.oho_bb.name")
  * @param idx Form.List 的索引
  */
-export function getValueWithIndex(record: any, fieldPath: string, fieldIndex?: string[]) {
+export function getValueWithIndex(record: any, fieldPath: string, idx?: string[]) {
+  const fieldIndex = castArray(idx).filter((v) => typeof v === 'string');
   const path = fieldPath.split('.');
 
   if (fieldIndex?.length) {
@@ -110,6 +111,7 @@ export class DetailsItemModel extends DisplayItemModel<{
   render() {
     const fieldModel = this.subModels.field as FieldModel;
     const idx = this.context.fieldIndex;
+    const record = this.context.record;
     // 嵌套场景下继续传透，为字段子模型创建 fork
     const modelForRender =
       idx != null
@@ -118,11 +120,14 @@ export class DetailsItemModel extends DisplayItemModel<{
             fork.context.defineProperty('fieldIndex', {
               get: () => idx,
             });
+            fork.context.defineProperty('record', {
+              get: () => record,
+              cache: false,
+            });
             return fork;
           })()
         : fieldModel;
-    const value = getValueWithIndex(this.context.record, this.fieldPath, idx);
-
+    const value = getValueWithIndex(record, this.fieldPath, idx);
     return (
       <FormItem {...this.props} value={value}>
         <FieldModelRenderer model={modelForRender} />
@@ -132,17 +137,17 @@ export class DetailsItemModel extends DisplayItemModel<{
 }
 
 DetailsItemModel.define({
-  label: escapeT('Display collection fields'),
+  label: tExpr('Display collection fields'),
   sort: 100,
 });
 
 DetailsItemModel.registerFlow({
   key: 'detailItemSettings',
   sort: 300,
-  title: escapeT('Detail item settings'),
+  title: tExpr('Detail item settings'),
   steps: {
     label: {
-      title: escapeT('Label'),
+      title: tExpr('Label'),
       uiSchema: (ctx) => {
         return {
           title: {
@@ -180,14 +185,14 @@ DetailsItemModel.registerFlow({
       },
     },
     showLabel: {
-      title: escapeT('Show label'),
+      title: tExpr('Show label'),
       uiSchema: {
         showLabel: {
           'x-component': 'Switch',
           'x-decorator': 'FormItem',
           'x-component-props': {
-            checkedChildren: escapeT('Yes'),
-            unCheckedChildren: escapeT('No'),
+            checkedChildren: tExpr('Yes'),
+            unCheckedChildren: tExpr('No'),
           },
         },
       },
@@ -199,7 +204,7 @@ DetailsItemModel.registerFlow({
       },
     },
     tooltip: {
-      title: escapeT('Tooltip'),
+      title: tExpr('Tooltip'),
       uiSchema: {
         tooltip: {
           'x-component': 'Input.TextArea',
@@ -211,7 +216,7 @@ DetailsItemModel.registerFlow({
       },
     },
     description: {
-      title: escapeT('Description'),
+      title: tExpr('Description'),
       uiSchema: {
         description: {
           'x-component': 'Input.TextArea',
@@ -223,12 +228,12 @@ DetailsItemModel.registerFlow({
       },
     },
     model: {
-      title: escapeT('Field component'),
+      title: tExpr('Field component'),
       use: 'displayFieldComponent',
     },
     fieldNames: {
       use: 'titleField',
-      title: escapeT('Label field'),
+      title: tExpr('Label field'),
 
       beforeParamsSave: async (ctx, params, previousParams) => {
         if (!ctx.collectionField.isAssociationField()) {

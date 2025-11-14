@@ -7,8 +7,9 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { BaseRecordResource, FilterItem } from '@nocobase/flow-engine';
+import { BaseRecordResource } from '@nocobase/flow-engine';
 import { parseField, removeUnparsableFilter, isEmptyFilterObject } from '../../utils';
+import { debugLog } from '../utils';
 import { transformFilter } from '@nocobase/utils/client';
 import { validateQuery } from '../models/QueryBuilder.service';
 
@@ -112,6 +113,7 @@ export class ChartResource<TData = any> extends BaseRecordResource<TData> {
       }),
       // 过滤条件
       filter: query.filter ? removeUnparsableFilter(transformFilter(query.filter)) : undefined,
+      orders: query.orders,
       limit: query.limit,
       offset: query.offset,
     };
@@ -146,7 +148,7 @@ export class ChartResource<TData = any> extends BaseRecordResource<TData> {
 
   // debounce 刷新数据
   async refresh() {
-    console.log('---ChartResource refresh');
+    debugLog('---ChartResource refresh', this.request.data);
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
     }

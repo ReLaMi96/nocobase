@@ -144,8 +144,8 @@ export class DataSource {
     return this.collectionManager.upsertCollection(options);
   }
 
-  upsertCollections(collections: CollectionOptions[]) {
-    return this.collectionManager.upsertCollections(collections);
+  upsertCollections(collections: CollectionOptions[], options: { clearFields?: boolean } = {}) {
+    return this.collectionManager.upsertCollections(collections, options);
   }
 
   removeCollection(name: string) {
@@ -210,12 +210,12 @@ export class CollectionManager {
     this.collections.delete(name);
   }
 
-  updateCollection(newOptions: CollectionOptions) {
+  updateCollection(newOptions: CollectionOptions, options: { clearFields?: boolean } = {}) {
     const collection = this.getCollection(newOptions.name);
     if (!collection) {
       throw new Error(`Collection ${newOptions.name} not found`);
     }
-    collection.setOptions(newOptions);
+    collection.setOptions(newOptions, options);
   }
 
   upsertCollection(options: CollectionOptions) {
@@ -227,10 +227,10 @@ export class CollectionManager {
     return this.getCollection(options.name);
   }
 
-  upsertCollections(collections: CollectionOptions[]) {
+  upsertCollections(collections: CollectionOptions[], options: { clearFields?: boolean } = {}) {
     for (const collection of sortCollectionsByInherits(collections)) {
       if (this.collections.has(collection.name)) {
-        this.updateCollection(collection);
+        this.updateCollection(collection, options);
       } else {
         this.addCollection(collection);
       }
@@ -321,6 +321,23 @@ export class CollectionManager {
     }
     return collection.getField(fieldName);
   }
+
+  getChildrenCollections(name) {
+    const childrens = [];
+    const collections = Array.from(this.collections.values());
+    const getChildrens = (name) => {
+      const inheritCollections = collections.filter((v: any) => {
+        return v.options.inherits?.includes(name);
+      });
+      inheritCollections.forEach((v) => {
+        const collectionKey = v.name;
+        childrens.push(v);
+        return getChildrens(collectionKey);
+      });
+      return childrens;
+    };
+    return getChildrens(name);
+  }
 }
 
 // Collection 负责管理自己的 Field
@@ -351,6 +368,10 @@ export class Collection {
       return record[this.filterTargetKey];
     }
     return _.pick(record, this.filterTargetKey);
+  }
+
+  get titleableFields() {
+    return this.getFields().filter((field) => field.titleable);
   }
 
   get hidden() {
@@ -412,10 +433,13 @@ export class Collection {
     this.dataSource = dataSource;
   }
 
-  setOptions(newOptions: any = {}) {
+  setOptions(newOptions: any = {}, options: { clearFields?: boolean } = {}) {
     Object.keys(this.options).forEach((key) => delete this.options[key]);
     Object.assign(this.options, newOptions);
     this.initInherits();
+    if (options.clearFields) {
+      this.clearFields();
+    }
     this.upsertFields(this.options.fields || []);
   }
 
@@ -483,14 +507,13 @@ export class Collection {
     if (otherKeys.length === 0) {
       return field;
     }
-    if (!field.targetCollection) {
+    if (!field?.targetCollection) {
       return null;
     }
     return field.targetCollection.getFieldByPath(otherKeys.join('.'));
   }
 
   getField(fieldName: string): CollectionField | undefined {
-    this.setFields(this.options.fields); //数据表字段被删除
     return this.fields.get(fieldName);
   }
 
@@ -619,6 +642,10 @@ export class CollectionField {
 
   get readonly() {
     return this.options.readonly || this.options.uiSchema?.['x-read-pretty'] || false;
+  }
+
+  get titleable() {
+    return !!(this.options.titleable ?? this.options.titleUsable);
   }
 
   get fullpath() {

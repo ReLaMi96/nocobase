@@ -8,16 +8,17 @@
  */
 import {
   CollectionField,
-  createCollectionContextMeta,
   createCurrentRecordMetaFactory,
   EditableItemModel,
-  escapeT,
+  tExpr,
   FilterableItemModel,
   FlowModel,
   MultiRecordResource,
   useFlowModel,
 } from '@nocobase/flow-engine';
 import { Select } from 'antd';
+import { css } from '@emotion/css';
+import { debounce } from 'lodash';
 import React from 'react';
 import { AssociationFieldModel } from './AssociationFieldModel';
 
@@ -72,7 +73,7 @@ export function LazySelect(props) {
         ? Array.isArray(value)
           ? value.filter(Boolean)
           : []
-        : value
+        : value && typeof value === 'object'
           ? [value]
           : [];
   return (
@@ -94,6 +95,21 @@ export function LazySelect(props) {
       optionRender={({ data }) => {
         return <LabelByField option={data} fieldNames={fieldNames} />;
       }}
+      labelRender={(data) => {
+        return (
+          <div
+            className={css`
+              div {
+                white-space: nowrap !important;
+                overflow: hidden;
+                text-overflow: ellipsis;
+              }
+            `}
+          >
+            {data.label}
+          </div>
+        );
+      }}
     />
   );
 }
@@ -110,10 +126,6 @@ export class RecordSelectFieldModel extends AssociationFieldModel {
     // For association fields, expose target collection to variable selectors
     this.context.defineProperty('collection', {
       get: () => this.context.collectionField?.targetCollection,
-      meta: createCollectionContextMeta(
-        () => this.context.collectionField?.targetCollection,
-        this.context.t('Current collection'),
-      ),
     });
   }
 
@@ -201,6 +213,7 @@ RecordSelectFieldModel.registerFlow({
         const resource = ctx.model.resource;
         const options = ctx.model.getDataSource();
         resource.setPage(1);
+        await ctx.model.applyFlow('selectSettings');
         await resource.refresh();
         const { count } = resource.getMeta();
         const data = resource.getData();
@@ -260,50 +273,54 @@ RecordSelectFieldModel.registerFlow({
     },
   },
 });
+
+async function originalHandler(ctx, params) {
+  try {
+    const targetCollection = ctx.model.collectionField.targetCollection;
+    const labelFieldName = ctx.model.props.fieldNames.label;
+    const targetLabelField = targetCollection.getField(labelFieldName);
+
+    const targetInterface = ctx.app.dataSourceManager.collectionFieldInterfaceManager.getFieldInterface(
+      targetLabelField.options.interface,
+    );
+    const operator = targetInterface?.filterable?.operators?.[0]?.value || '$includes';
+
+    const searchText = ctx.inputArgs.searchText?.trim();
+
+    const resource = ctx.model.resource;
+    const key = `${labelFieldName}.${operator}`;
+    if (searchText === '') {
+      resource.removeFilterGroup(labelFieldName);
+    } else {
+      resource.setPage(1);
+      resource.addFilterGroup(labelFieldName, {
+        [key]: searchText,
+      });
+    }
+    await resource.refresh();
+    const data = resource.getData();
+    ctx.model.setDataSource(data);
+    if (data.length < paginationState.pageSize) {
+      paginationState.hasMore = false;
+    } else {
+      paginationState.hasMore = true;
+      paginationState.page++;
+    }
+  } catch (error) {
+    console.error('AssociationSelectField search flow error:', error);
+    ctx.model.setDataSource([]);
+  }
+}
+
+const debouncedHandler = debounce(originalHandler, 500);
+
 // 模糊搜索
 RecordSelectFieldModel.registerFlow({
   key: 'searchSettings',
   on: 'search',
   steps: {
     step1: {
-      async handler(ctx, params) {
-        try {
-          const targetCollection = ctx.model.collectionField.targetCollection;
-          const labelFieldName = ctx.model.props.fieldNames.label;
-          const targetLabelField = targetCollection.getField(labelFieldName);
-
-          const targetInterface = ctx.app.dataSourceManager.collectionFieldInterfaceManager.getFieldInterface(
-            targetLabelField.options.interface,
-          );
-          const operator = targetInterface?.filterable?.operators?.[0]?.value || '$includes';
-
-          const searchText = ctx.inputArgs.searchText?.trim();
-
-          const resource = ctx.model.resource;
-          const key = `${labelFieldName}.${operator}`;
-          if (searchText === '') {
-            resource.removeFilterGroup(labelFieldName);
-          } else {
-            resource.setPage(1);
-            resource.addFilterGroup(labelFieldName, {
-              [key]: searchText,
-            });
-          }
-          await resource.refresh();
-          const data = resource.getData();
-          ctx.model.setDataSource(data);
-          if (data.length < paginationState.pageSize) {
-            paginationState.hasMore = false;
-          } else {
-            paginationState.hasMore = true;
-            paginationState.page++;
-          }
-        } catch (error) {
-          console.error('AssociationSelectField search flow error:', error);
-          // 出错时也可以选择清空数据源或者显示错误提示
-          ctx.model.setDataSource([]);
-        }
-      },
+      handler: debouncedHandler,
     },
   },
 });
@@ -337,7 +354,7 @@ RecordSelectFieldModel.registerFlow({
 //专有配置项
 RecordSelectFieldModel.registerFlow({
   key: 'selectSettings',
-  title: escapeT('Association select settings'),
+  title: tExpr('Association select settings'),
   sort: 800,
   steps: {
     fieldNames: {
@@ -350,7 +367,7 @@ RecordSelectFieldModel.registerFlow({
       use: 'sortingRule',
     },
     allowMultiple: {
-      title: escapeT('Allow multiple'),
+      title: tExpr('Allow multiple'),
       uiSchema(ctx) {
         if (ctx.collectionField && ['belongsToMany', 'hasMany', 'belongsToArray'].includes(ctx.collectionField.type)) {
           return {
@@ -381,7 +398,7 @@ RecordSelectFieldModel.registerFlow({
 });
 
 RecordSelectFieldModel.define({
-  label: escapeT('Select'),
+  label: tExpr('Select'),
 });
 
 EditableItemModel.bindModelToInterface(

@@ -133,8 +133,6 @@ export default class PluginWorkflowServer extends Plugin {
   //   * add all hooks for enabled workflows
   //   * add hooks for create/update[enabled]/delete workflow to add/remove specific hooks
   private onAfterStart = async () => {
-    this.dispatcher.setReady(true);
-
     const collection = this.db.getCollection('workflows');
     const workflows = await collection.repository.find({
       appends: ['versionStats'],
@@ -168,14 +166,16 @@ export default class PluginWorkflowServer extends Plugin {
       this.dispatcher.dispatch();
     });
 
+    this.dispatcher.setReady(true);
+
     // check for queueing executions
     this.getLogger('dispatcher').info('(starting) check for queueing executions');
     this.dispatcher.dispatch();
-
-    this.dispatcher.setReady(true);
   };
 
   private onBeforeStop = async () => {
+    this.dispatcher.setReady(false);
+
     this.app.logger.info(`stopping workflow plugin before app (${this.app.name}) shutdown...`);
     for (const workflow of this.enabledCache.values()) {
       this.toggle(workflow, false, { silent: true });
@@ -213,13 +213,17 @@ export default class PluginWorkflowServer extends Plugin {
     }
   }
 
+  public serving() {
+    return this.app.serving(WORKER_JOB_WORKFLOW_PROCESS);
+  }
+
   /**
    * @experimental
    */
   getLogger(workflowId: ID = 'dispatcher'): Logger {
     const now = new Date();
     const date = `${now.getFullYear()}-${`0${now.getMonth() + 1}`.slice(-2)}-${`0${now.getDate()}`.slice(-2)}`;
-    const key = `${date}-${workflowId}}`;
+    const key = `${date}-${workflowId}`;
     if (this.loggerCache.has(key)) {
       return this.loggerCache.get(key);
     }
@@ -305,11 +309,6 @@ export default class PluginWorkflowServer extends Plugin {
     this.snowflake = new Snowflake({
       custom_epoch: pluginRecord?.createdAt.getTime(),
     });
-
-    this.app.backgroundJobManager.subscribe(`${this.name}.pendingExecution`, {
-      idle: () => this.app.serving(WORKER_JOB_WORKFLOW_PROCESS) && this.dispatcher.idle,
-      process: this.dispatcher.onQueueExecution,
-    });
   }
 
   /**
@@ -327,15 +326,25 @@ export default class PluginWorkflowServer extends Plugin {
       max: 20,
       updateAgeOnGet: true,
       dispose(logger) {
-        (<Logger>logger).end();
+        const cachedLogger = logger as Logger | undefined;
+        if (!cachedLogger) {
+          return;
+        }
+
+        cachedLogger.silent = true;
+        if (typeof cachedLogger.close === 'function') {
+          cachedLogger.close();
+        }
       },
     });
 
     this.meter = this.app.telemetry.metric.getMeter();
-    const counter = this.meter.createObservableGauge('workflow.events.counter');
-    counter.addCallback((result) => {
-      result.observe(this.dispatcher.getEventsCount());
-    });
+    if (this.meter) {
+      const counter = this.meter.createObservableGauge('workflow.events.counter');
+      counter.addCallback((result) => {
+        result.observe(this.dispatcher.getEventsCount());
+      });
+    }
 
     this.app.acl.registerSnippet({
       name: `pm.${this.name}.workflows`,
@@ -369,6 +378,13 @@ export default class PluginWorkflowServer extends Plugin {
 
     this.app.on('afterStart', this.onAfterStart);
     this.app.on('beforeStop', this.onBeforeStop);
+
+    if (this.serving()) {
+      this.app.backgroundJobManager.subscribe(`${this.name}.pendingExecution`, {
+        idle: () => this.dispatcher.idle,
+        process: this.dispatcher.onQueueExecution,
+      });
+    }
   }
 
   private toggle(
@@ -379,7 +395,9 @@ export default class PluginWorkflowServer extends Plugin {
     const type = workflow.get('type');
     const trigger = this.triggers.get(type);
     if (!trigger) {
-      this.getLogger(workflow.id).error(`trigger type ${workflow.type} of workflow ${workflow.id} is not implemented`);
+      this.getLogger(workflow.id).error(`trigger type ${workflow.type} of workflow ${workflow.id} is not implemented`, {
+        workflowId: workflow.id,
+      });
       return;
     }
     const next = enable ?? workflow.get('enabled');
@@ -388,15 +406,21 @@ export default class PluginWorkflowServer extends Plugin {
       const prev = workflow.previous();
       if (prev.config) {
         trigger.off({ ...workflow.get(), ...prev });
-        this.getLogger(workflow.id).info(`toggle OFF workflow ${workflow.id} based on configuration before updated`);
+        this.getLogger(workflow.id).info(`toggle OFF workflow ${workflow.id} based on configuration before updated`, {
+          workflowId: workflow.id,
+        });
       }
       trigger.on(workflow);
-      this.getLogger(workflow.id).info(`toggle ON workflow ${workflow.id}`);
+      this.getLogger(workflow.id).info(`toggle ON workflow ${workflow.id}`, {
+        workflowId: workflow.id,
+      });
 
       this.enabledCache.set(workflow.id, workflow);
     } else {
       trigger.off(workflow);
-      this.getLogger(workflow.id).info(`toggle OFF workflow ${workflow.id}`);
+      this.getLogger(workflow.id).info(`toggle OFF workflow ${workflow.id}`, {
+        workflowId: workflow.id,
+      });
 
       this.enabledCache.delete(workflow.id);
     }

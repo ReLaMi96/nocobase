@@ -20,7 +20,7 @@ import {
   FlowModel,
   FlowModelRenderer,
   FlowSettingsButton,
-  escapeT,
+  tExpr,
 } from '@nocobase/flow-engine';
 import { Tabs } from 'antd';
 import _ from 'lodash';
@@ -35,6 +35,26 @@ type PageModelStructure = {
 
 export class PageModel extends FlowModel<PageModelStructure> {
   tabBarExtraContent: { left?: ReactNode; right?: ReactNode } = {};
+  tabActiveKey: string;
+
+  onMount(): void {
+    super.onMount();
+    this.tabActiveKey = this.context.view.inputArgs?.tabUid;
+    if (this.context?.pageInfo) this.context.pageInfo.version = 'v2';
+  }
+
+  invokeTabModelLifecycleMethod(tabActiveKey: string, method: 'onActive' | 'onInactive') {
+    if (method === 'onActive' && this.context?.pageInfo) {
+      this.context.pageInfo.version = 'v2';
+    }
+    const tabModel: BasePageTabModel = this.flowEngine.getModel(tabActiveKey);
+
+    if (tabModel) {
+      tabModel.subModels.grid?.mapSubModels('items', (item) => {
+        item[method]?.();
+      });
+    }
+  }
 
   createPageTabModelOptions = (): CreateModelOptions => {
     const modeId = uid();
@@ -63,7 +83,12 @@ export class PageModel extends FlowModel<PageModelStructure> {
           <Droppable model={model}>
             <FlowModelRenderer
               model={model}
-              showFlowSettings={{ showBackground: true, showBorder: false }}
+              showFlowSettings={{
+                showBackground: true,
+                showBorder: false,
+                toolbarPosition: 'above',
+                style: { transform: 'translateY(8px)' },
+              }}
               extraToolbarItems={[
                 {
                   key: 'drag-handler',
@@ -99,6 +124,13 @@ export class PageModel extends FlowModel<PageModelStructure> {
             this.context.view.navigation?.changeTo?.({
               tabUid: activeKey,
             });
+
+            this.invokeTabModelLifecycleMethod(activeKey, 'onActive');
+            this.invokeTabModelLifecycleMethod(this.tabActiveKey, 'onInactive');
+            this.tabActiveKey = activeKey;
+            if (this.context.view.inputArgs?.tabUid) {
+              this.context.view.inputArgs.tabUid = activeKey;
+            }
           }}
           // destroyInactiveTabPane
           tabBarExtraContent={{
@@ -136,14 +168,14 @@ export class PageModel extends FlowModel<PageModelStructure> {
 
 PageModel.registerFlow({
   key: 'pageSettings',
-  title: escapeT('Page settings'),
+  title: tExpr('Page settings'),
   steps: {
     general: {
-      title: escapeT('Edit page'),
+      title: tExpr('Edit page'),
       uiSchema: {
         title: {
           type: 'string',
-          title: escapeT('Page title'),
+          title: tExpr('Page title'),
           'x-decorator': 'FormItem',
           'x-component': 'Input',
           'x-reactions': {
@@ -157,13 +189,13 @@ PageModel.registerFlow({
         },
         displayTitle: {
           type: 'boolean',
-          title: escapeT('Display page title'),
+          title: tExpr('Display page title'),
           'x-decorator': 'FormItem',
           'x-component': 'Switch',
         },
         enableTabs: {
           type: 'boolean',
-          title: escapeT('Enable tabs'),
+          title: tExpr('Enable tabs'),
           'x-decorator': 'FormItem',
           'x-component': 'Switch',
         },

@@ -41,6 +41,7 @@ export { setupRuntimeContextSteps } from './setupRuntimeContextSteps';
 
 // Record Proxy 工具
 export { createCollectionContextMeta } from './createCollectionContextMeta';
+export { createAssociationAwareObjectMetaFactory, createAssociationSubpathResolver } from './associationObjectVariable';
 export {
   buildRecordMeta,
   collectContextParamsForTemplate,
@@ -57,6 +58,14 @@ export { extractPropertyPath, formatPathToVariable, isVariableExpression } from 
 
 export { clearAutoFlowError, getAutoFlowError, setAutoFlowError, type AutoFlowError } from './autoFlowError';
 export { parsePathnameToViewParams, type ViewParam } from './parsePathnameToViewParams';
+export { buildSettingsViewInputArgs } from './buildSettingsViewInputArgs';
 
 // 安全全局对象（window/document）
-export { createSafeDocument, createSafeWindow } from './safeGlobals';
+export { createSafeDocument, createSafeWindow, createSafeNavigator } from './safeGlobals';
+
+// Ephemeral context helper（用于临时注入属性/方法，避免污染父级 ctx）
+export { createEphemeralContext } from './createEphemeralContext';
+
+// Filter helpers
+export { pruneFilter } from './pruneFilter';
+export { isBeforeRenderFlow } from './flows';

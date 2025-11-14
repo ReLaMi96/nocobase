@@ -147,9 +147,10 @@ export class Application {
   maintaining = false;
   error = null;
   hasLoadError = false;
+  locales = null;
 
   private wsAuthorized = false;
-  private variables: Variable[] = [];
+  private readonly variables: Variable[] = [];
   apps: {
     Component?: ComponentType;
   } = {
@@ -325,6 +326,8 @@ export class Application {
     });
     this.use(FlowEngineProvider, { engine: this.flowEngine });
     this.use(FlowEngineGlobalsContextProvider);
+    const pageInfo = observable({ version: undefined as 'v2' | 'v1' | undefined });
+    this.flowEngine.context.defineProperty('pageInfo', { value: pageInfo });
   }
 
   private addReactRouterComponents() {

@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { defineAction, escapeT } from '@nocobase/flow-engine';
+import { defineAction, tExpr } from '@nocobase/flow-engine';
 import { FieldModel } from '../models/base/FieldModel';
 
 export function buildAssociationOptions(ctx: any, itemModel, titleField?: string) {
@@ -24,8 +24,8 @@ export function buildAssociationOptions(ctx: any, itemModel, titleField?: string
     const titleFieldClasses = itemModel.getBindingsByField(ctx, collectionField.targetCollection.getField(titleField));
 
     return [
-      classes.length && { label: escapeT('AssociationField component'), options: makeOptions(classes) },
-      { label: escapeT('Title field component'), options: makeOptions(titleFieldClasses) },
+      classes.length && { label: tExpr('AssociationField component'), options: makeOptions(classes) },
+      { label: tExpr('Title field component'), options: makeOptions(titleFieldClasses) },
     ].filter(Boolean);
   }
 
@@ -34,7 +34,7 @@ export function buildAssociationOptions(ctx: any, itemModel, titleField?: string
 
 export const displayFieldComponent = defineAction({
   name: 'displayFieldComponent',
-  title: escapeT('Field component'),
+  title: tExpr('Field component'),
   uiSchema: (ctx: any) => {
     const { titleField } = ctx.model.props;
     if (!ctx.collectionField) {
@@ -73,6 +73,7 @@ export const displayFieldComponent = defineAction({
     if (params.use !== previousParams.use) {
       const fieldUid = ctx.model.subModels['field']['uid'];
       await ctx.engine.destroyModel(fieldUid);
+      console.log(params.use);
       ctx.model.setSubModel('field', {
         use: params.use,
         props: selected?.defaultProps,
@@ -94,7 +95,7 @@ export const displayFieldComponent = defineAction({
   },
   async handler(ctx, params) {
     if (params.use !== ctx.model.subModels.field.use) {
-      ctx.model.setStepParams(ctx.flowKey, 'model', { use: ctx.model.subModels.field.use });
+      ctx.model.setStepParams(ctx.flowKey, 'model', { use: params.use });
     }
     // if (!params.use) {
     //   throw new Error('model use is a required parameter');

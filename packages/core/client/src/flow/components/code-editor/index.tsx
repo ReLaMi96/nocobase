@@ -11,7 +11,6 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import type { Completion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
-import { InjectableRendingEventTrigger, InjectableRendingEventTriggerProps } from '../decorator';
 import { useFlowContext, getRunJSScenesForContext } from '@nocobase/flow-engine';
 import { useRunJSDocCompletions } from './hooks/useRunJSDocCompletions';
 import { clearDiagnostics, parseErrorLineColumn, markErrorAt, jumpTo } from './errorHelpers';
@@ -31,26 +30,19 @@ interface CodeEditorProps {
   theme?: 'light' | 'dark';
   readonly?: boolean;
   enableLinter?: boolean;
-  rightExtra?: ((editorRef: EditorRef, setActive: (key: string, active: boolean) => void) => React.ReactNode)[];
   wrapperStyle?: React.CSSProperties;
   extraCompletions?: Completion[]; // 供外部注入的静态补全
   version?: string; // runjs 版本（默认 v1）
+  name?: string;
+  language?: string;
   scene?: string | string[];
+  RightExtra?: React.FC<any>;
 }
 
 export * from './types';
+export * from './extension';
 
-export const CodeEditor: React.FC<CodeEditorProps & InjectableRendingEventTriggerProps> = (props) => {
-  const { mode, name, language, scene, ...rest } = props;
-  const triggerProps = { mode, name, language, scene };
-  return (
-    <InjectableRendingEventTrigger {...triggerProps}>
-      <InnerCodeEditor {...rest} scene={scene} />
-    </InjectableRendingEventTrigger>
-  );
-};
-
-const InnerCodeEditor: React.FC<CodeEditorProps> = ({
+export const CodeEditor: React.FC<CodeEditorProps> = ({
   value = '',
   onChange,
   placeholder = '',
@@ -59,12 +51,15 @@ const InnerCodeEditor: React.FC<CodeEditorProps> = ({
   theme = 'light',
   readonly = false,
   enableLinter = false,
-  rightExtra,
   wrapperStyle,
   extraCompletions,
   version = 'v1',
+  name,
+  language,
   scene,
+  RightExtra,
 }) => {
+  console.log(RightExtra);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const runtimeCtx = useFlowContext<any>();
@@ -141,8 +136,13 @@ const InnerCodeEditor: React.FC<CodeEditorProps> = ({
       const v = viewRef.current;
       return v ? v.state.doc.toString() : '';
     },
+
     buttonGroupHeight: 0,
+    snippetEntries: [],
+    logs: [],
   });
+  extraEditorRef.current.snippetEntries = snippetEntries;
+  extraEditorRef.current.logs = logs;
 
   // snippet group display handled in SnippetsDrawer
 
@@ -160,33 +160,39 @@ const InnerCodeEditor: React.FC<CodeEditorProps> = ({
       ref={wrapperRef}
     >
       <RightExtraPanel
-        rightExtra={rightExtra}
+        name={name}
+        language={language}
+        scene={resolvedScene}
         extraEditorRef={extraEditorRef.current}
         extraContent={
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Button size="small" onClick={() => setSnippetOpen(true)}>
-              {tr('Snippets')}
-            </Button>
-            <>
-              <Button
-                size="small"
-                loading={running}
-                onClick={async () => {
-                  const code = viewRef.current?.state.doc.toString() || '';
-                  clearDiagnostics(viewRef.current);
-                  const res = await run(code);
-                  if (!res?.success) {
-                    const rawErr = res?.error;
-                    const errText = res?.timeout ? tr('Execution timed out') : String(rawErr || tr('Unknown error'));
-                    const pos = parseErrorLineColumn(rawErr);
-                    if (pos && viewRef.current) markErrorAt(viewRef.current, pos.line, pos.column, errText);
-                  }
-                }}
-              >
-                {tr('Run')}
+          RightExtra ? (
+            <RightExtra viewRef={viewRef} />
+          ) : (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Button size="small" onClick={() => setSnippetOpen(true)}>
+                {tr('Snippets')}
               </Button>
-            </>
-          </div>
+              <>
+                <Button
+                  size="small"
+                  loading={running}
+                  onClick={async () => {
+                    const code = viewRef.current?.state.doc.toString() || '';
+                    clearDiagnostics(viewRef.current);
+                    const res = await run(code);
+                    if (!res?.success) {
+                      const rawErr = res?.error;
+                      const errText = res?.timeout ? tr('Execution timed out') : String(rawErr || tr('Unknown error'));
+                      const pos = parseErrorLineColumn(rawErr);
+                      if (pos && viewRef.current) markErrorAt(viewRef.current, pos.line, pos.column, errText);
+                    }
+                  }}
+                >
+                  {tr('Run')}
+                </Button>
+              </>
+            </div>
+          )
         }
       />
       <EditorCore

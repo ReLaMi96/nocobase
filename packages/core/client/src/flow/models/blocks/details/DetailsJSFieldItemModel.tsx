@@ -7,9 +7,10 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { buildWrapperFieldChildren, escapeT, FlowModelContext } from '@nocobase/flow-engine';
-import { DetailsItemModel } from './DetailsItemModel';
+import { tExpr, FlowModelContext, type SubModelItem } from '@nocobase/flow-engine';
+import { DetailsAssociationFieldGroupModel } from './DetailsAssociationFieldGroupModel';
 import { DetailsCustomItemModel } from './DetailsCustomItemModel';
+import { buildJSFieldMenuChildren } from '../utils/transformChildrenToJS';
 
 /**
  * “JavaScript 字段”菜单入口（详情）：
@@ -19,18 +20,18 @@ import { DetailsCustomItemModel } from './DetailsCustomItemModel';
  */
 export class DetailsJSFieldItemModel extends DetailsCustomItemModel {
   static defineChildren(ctx: FlowModelContext) {
-    const groups = buildWrapperFieldChildren(ctx, {
+    return buildJSFieldMenuChildren(ctx, {
       useModel: 'DetailsItemModel',
       fieldUseModel: 'JSFieldModel',
       refreshTargets: ['DetailsItemModel'],
+      associationProvider: (inner) => DetailsAssociationFieldGroupModel.defineChildren(inner) as SubModelItem[],
     });
-    return groups?.[0]?.children || [];
   }
 }
 
 DetailsJSFieldItemModel.define({
-  label: escapeT('JS field'),
+  label: tExpr('JS field'),
   searchable: true,
-  searchPlaceholder: escapeT('Search fields'),
+  searchPlaceholder: tExpr('Search fields'),
   sort: 110,
 });

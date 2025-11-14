@@ -9,6 +9,7 @@
 
 import {
   FlowModelRenderer,
+  observable,
   parsePathnameToViewParams,
   reaction,
   useFlowEngine,
@@ -19,7 +20,7 @@ import {
 import type { FlowModel } from '@nocobase/flow-engine';
 import { useRequest } from 'ahooks';
 import React, { useEffect, useMemo, useRef } from 'react';
-import { useAllAccessDesktopRoutes, useCurrentRoute, useMobileLayout } from '../route-switch';
+import { useAllAccessDesktopRoutes, useCurrentRoute, useKeepAlive, useMobileLayout } from '../route-switch';
 import { SkeletonFallback } from './components/SkeletonFallback';
 import { resolveViewParamsToViewList, ViewItem } from './resolveViewParamsToViewList';
 import { getViewDiffAndUpdateHidden } from './getViewDiffAndUpdateHidden';
@@ -32,7 +33,11 @@ function InternalFlowPage({ uid, ...props }) {
   return (
     <FlowModelRenderer
       model={model}
-      fallback={<SkeletonFallback style={{ margin: 16 }} />}
+      fallback={
+        <SkeletonFallback
+          style={{ margin: model?.context.isMobileLayout ? 8 : model?.context.themeToken.marginBlock }}
+        />
+      }
       hideRemoveInSettings
       showFlowSettings={{ showBackground: false, showBorder: false }}
       {...props}
@@ -55,6 +60,7 @@ export const FlowRoute = () => {
   const prevViewListRef = useRef<ViewItem[]>([]);
   const hasStepNavigatedRef = useRef(false);
   const { designable } = useDesignable();
+  const { active } = useKeepAlive();
 
   const routeModel = useMemo(() => {
     return flowEngine.createModel({
@@ -62,6 +68,16 @@ export const FlowRoute = () => {
       use: 'RouteModel',
     });
   }, [flowEngine]);
+
+  useEffect(() => {
+    routeModel.context.defineProperty('pageActive', {
+      value: observable.ref(false),
+    });
+  }, [routeModel]);
+
+  useEffect(() => {
+    routeModel.context.pageActive.value = active;
+  }, [active, routeModel]);
 
   useEffect(() => {
     flowEngine.context.defineProperty('isMobileLayout', {
@@ -162,6 +178,7 @@ export const FlowRoute = () => {
 
         // 4. 处理需要打开的视图
         if (viewsToOpen.length) {
+          const prevViewListCopy = [...prevViewListRef.current];
           const openView = (index: number) => {
             if (!viewsToOpen[index]) {
               return;
@@ -171,10 +188,9 @@ export const FlowRoute = () => {
             const closeRef = React.createRef<(result?: any, force?: boolean) => void>();
             const updateRef = React.createRef<(value: any) => void>();
             const openViewParams = getOpenViewStepParams(viewItem.model);
+            const openerUids = prevViewListCopy.map((item) => item.params.viewUid);
+            prevViewListCopy.push(viewItem);
 
-            prevViewListRef.current.push(viewItem);
-
-            const openerUids = prevViewListRef.current.slice(0, -1).map((item) => item.params.viewUid);
             viewItem.model.dispatchEvent('click', {
               target: layoutContentRef.current,
               collectionName: openViewParams?.collectionName,
@@ -186,7 +202,7 @@ export const FlowRoute = () => {
               ...viewItem.params,
               navigation: new ViewNavigation(
                 flowEngine.context,
-                prevViewListRef.current.map((item) => item.params),
+                prevViewListCopy.map((item) => item.params),
               ),
               onOpen() {
                 openView(index + 1); // 递归打开下一个视图
@@ -208,7 +224,14 @@ export const FlowRoute = () => {
         viewsToClose.forEach((viewItem) => {
           viewStateRef.current[getKey(viewItem)]?.close?.(true);
           delete viewStateRef.current[getKey(viewItem)];
-          prevViewListRef.current = prevViewListRef.current.filter((item) => getKey(item) !== getKey(viewItem));
+        });
+
+        prevViewListRef.current = viewList.map((item, index) => {
+          if (prevViewListRef.current[index]) {
+            // 修复子页面切换时，hidden 状态失去响应性的问题
+            item.hidden = prevViewListRef.current[index].hidden;
+          }
+          return item;
         });
       },
       {
@@ -220,7 +243,6 @@ export const FlowRoute = () => {
     return () => {
       dispose?.();
       prevViewListRef.current.forEach((viewItem) => {
-        viewStateRef.current[getKey(viewItem)]?.close?.(true);
         flowEngine.removeModel(viewItem.params.viewUid);
         delete viewStateRef.current[getKey(viewItem)];
       });
@@ -288,7 +310,7 @@ export const FlowPage = (props: FlowPageProps & Record<string, unknown>) => {
     },
   );
   if (loading || !data?.uid) {
-    return <SkeletonFallback style={{ margin: 16 }} />;
+    return <SkeletonFallback style={{ margin: ctx?.isMobileLayout ? 8 : ctx?.themeToken.marginBlock }} />;
   }
   return <InternalFlowPage uid={data.uid} {...rest} />;
 };
